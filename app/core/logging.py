@@ -1,43 +1,28 @@
+"""
+일자별 로그 파일 생성
+app/core/logging.py
+"""
+
 import logging
 import sys
+from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
-from logging.handlers import RotatingFileHandler
+from datetime import datetime
 from app.core.config import settings
-import functools
-import time
-from typing import Callable
 
 
 def setup_logging():
-    """로깅 설정"""
-
-    # 로그 디렉토리 생성
-    log_dir = Path(settings.LOG_DIR)
-    log_dir.mkdir(exist_ok=True)
-
-    # 로거 생성
+    """일자별 로깅 설정"""
     logger = logging.getLogger("fastapi_app")
     logger.setLevel(settings.LOG_LEVEL)
 
-    # 기존 핸들러 제거 (중복 방지)
-    logger.handlers.clear()
+    if logger.hasHandlers():
+        logger.handlers.clear()
 
-    # 포맷 설정
     formatter = logging.Formatter(
         fmt='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
-
-    # 파일 핸들러 (Rotating)
-    file_handler = RotatingFileHandler(
-        filename=log_dir / "app.log",
-        maxBytes=settings.LOG_MAX_SIZE,  # 10MB
-        backupCount=settings.LOG_BACKUP_COUNT,  # 30개 백업
-        encoding='utf-8'
-    )
-    file_handler.setLevel(settings.LOG_LEVEL)
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
 
     # 콘솔 핸들러
     if settings.LOG_TO_CONSOLE:
@@ -46,35 +31,34 @@ def setup_logging():
         console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)
 
+    # 일자별 파일 핸들러
+    try:
+        log_dir = Path(settings.LOG_DIR)
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+        # 오늘 날짜로 파일명 생성
+        today = datetime.now().strftime('%Y-%m-%d')
+        log_file = log_dir / f"app_{today}.log"
+
+        file_handler = TimedRotatingFileHandler(
+            filename=str(log_file),
+            when='midnight',      # 자정에 로테이션
+            interval=1,           # 1일마다
+            backupCount=30,       # 30일 보관
+            encoding='utf-8',
+            utc=False
+        )
+
+        file_handler.setLevel(settings.LOG_LEVEL)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+
+        logger.info(f"✅ 로그 파일: {log_file}")
+
+    except Exception as e:
+        logger.warning(f"⚠️ 파일 로깅 실패: {str(e)}")
+
     return logger
 
 
-def log_execution_time(func: Callable):
-    """함수 실행 시간 측정 데코레이터"""
-    @functools.wraps(func)
-    async def wrapper(*args, **kwargs):
-        start_time = time.time()
-
-        try:
-            result = await func(*args, **kwargs)
-            execution_time = time.time() - start_time
-
-            logger.info(
-                f"[EXECUTION] {func.__name__} - "
-                f"Duration: {execution_time:.4f}s"
-            )
-
-            return result
-        except Exception as e:
-            execution_time = time.time() - start_time
-            logger.error(
-                f"[EXECUTION ERROR] {func.__name__} - "
-                f"Error: {str(e)} - "
-                f"Duration: {execution_time:.4f}s"
-            )
-            raise
-
-    return wrapper
-
-# 전역 로거
 logger = setup_logging()

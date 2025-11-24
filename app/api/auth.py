@@ -1,13 +1,63 @@
 from fastapi import APIRouter, HTTPException, status, Request, Depends
 from datetime import datetime
 from app.schemas.auth import LoginRequest, LoginResponse
-from app.core.security import verify_password, create_access_token
+from app.core.security import verify_password, create_access_token, decode_access_token
 from app.db.database import get_db_connection, execute_query
 from app.core.logging import logger
 from app.core.dependencies import get_current_user
+from app.core.config import settings
 import aiomysql
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+@router.get("/dev-token")
+async def get_dev_token(request: Request):
+    """
+    개발 전용 고정 토큰 반환
+
+    ⚠️ 개발 환경에서만 사용 가능
+    """
+    request_id = getattr(request.state, "request_id", "no-id")
+
+    # 운영 환경에서는 비활성화
+    if not settings.is_development:
+        logger.warning(f"[{request_id}] 운영 환경에서 개발 토큰 요청 시도")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="이 기능은 개발 환경에서만 사용 가능합니다"
+        )
+
+    # 개발 토큰이 설정되지 않은 경우
+    if not settings.DEV_ACCESS_TOKEN:
+        logger.warning(f"[{request_id}] 개발 토큰이 설정되지 않음")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="개발 토큰이 설정되지 않았습니다. .env 파일을 확인하세요."
+        )
+
+    # 토큰 디코딩하여 사용자 정보 추출
+    payload = decode_access_token(settings.DEV_ACCESS_TOKEN)
+
+    if not payload:
+        logger.error(f"[{request_id}] 개발 토큰이 유효하지 않음")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="개발 토큰이 유효하지 않습니다. 다시 생성하세요."
+        )
+
+    logger.info(f"[{request_id}] 개발 토큰 반환 - user_id: {payload.get('user_id')}")
+
+    return LoginResponse(
+        access_token=settings.DEV_ACCESS_TOKEN,
+        token_type="bearer",
+        user={
+            "id": payload.get("user_id"),
+            "username": payload.get("username"),
+            "email": payload.get("email"),
+            "is_admin": True  # 개발 사용자는 관리자로 가정
+        }
+    )
 
 
 @router.post("/login", response_model=LoginResponse)

@@ -71,15 +71,29 @@ async def health_check():
     """헬스 체크"""
     return {"status": "healthy"}
 
-@app.get("/info")
-async def app_info():
-    """애플리케이션 정보"""
+@app.get("/dev-info")
+async def dev_info():
+    """개발 환경 정보 (개발 환경에서만)"""
+    if not settings.is_development:
+        raise HTTPException(status_code=403, detail="개발 환경에서만 사용 가능")
+
+    token_info = None
+    if settings.DEV_ACCESS_TOKEN:
+        from app.core.security import decode_access_token
+        payload = decode_access_token(settings.DEV_ACCESS_TOKEN)
+        if payload:
+            from datetime import datetime
+            exp_timestamp = payload.get('exp')
+            exp_date = datetime.fromtimestamp(exp_timestamp) if exp_timestamp else None
+            token_info = {
+                "user_id": payload.get('user_id'),
+                "username": payload.get('username'),
+                "email": payload.get('email'),
+                "expires_at": exp_date.isoformat() if exp_date else None
+            }
+
     return {
         "environment": settings.ENVIRONMENT,
-        "is_development": settings.is_development,
-        "is_production": settings.is_production,
-        "log_level": settings.LOG_LEVEL,
-        "cors_origins": settings.cors_origins_list,
-        "database_host": settings.DB_HOST,  # 운영에서는 제거 권장
-        "rate_limit_enabled": settings.ENABLE_RATE_LIMIT
+        "dev_token_configured": settings.DEV_ACCESS_TOKEN is not None,
+        "dev_token_info": token_info
     }

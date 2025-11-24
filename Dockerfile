@@ -41,7 +41,7 @@ RUN chown -R appuser:appuser /app
 USER appuser
 
 # 포트 노출 (Railway가 자동으로 PORT 환경변수 설정)
-EXPOSE 8000
+EXPOSE 8080
 
 # 애플리케이션 실행
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port 8080"]

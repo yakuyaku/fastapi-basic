@@ -9,30 +9,30 @@ class Settings(BaseSettings):
     # Environment
     ENVIRONMENT: str = "development"
 
-    # Database
-    DB_HOST: str
-    DB_PORT: int
-    DB_USER: str
-    DB_PASSWORD: str
-    DB_NAME: str
+    # Database - 기본값 추가
+    DB_HOST: str = "localhost"
+    DB_PORT: int = 3306  # 기본값 추가!
+    DB_USER: str = "root"
+    DB_PASSWORD: str = ""
+    DB_NAME: str = "railway"
 
     # JWT
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
-    # Development Only - 고정 Access Token
+    # Development Only
     DEV_ACCESS_TOKEN: Optional[str] = None
 
     # Logging
-    LOG_DIR: str
-    LOG_LEVEL: str
-    LOG_TO_CONSOLE: bool
-    LOG_MAX_SIZE: int
-    LOG_BACKUP_COUNT: int
+    LOG_DIR: str = "/app/logs"
+    LOG_LEVEL: str = "INFO"
+    LOG_TO_CONSOLE: bool = True
+    LOG_MAX_SIZE: int = 52428800
+    LOG_BACKUP_COUNT: int = 90
 
     # File Upload
-    UPLOAD_DIR: str = "./uploads"
+    UPLOAD_DIR: str = "/app/uploads"
     MAX_IMAGE_SIZE: int = 10485760
     MAX_DOCUMENT_SIZE: int = 52428800
 
@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     RATE_LIMIT_PER_MINUTE: int = 60
 
     model_config = SettingsConfigDict(
-        env_file=".env" if os.getenv("APP_ENV") != "production" else ".env.production",
+        env_file=".env" if os.getenv("RAILWAY_ENVIRONMENT_NAME") is None else None,
         env_file_encoding="utf-8",
         extra="ignore"
     )
@@ -70,6 +70,11 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         """운영 환경 여부"""
         return self.ENVIRONMENT == "production"
+
+    @property
+    def is_railway(self) -> bool:
+        """Railway 환경 여부"""
+        return os.getenv("RAILWAY_ENVIRONMENT_NAME") is not None
 
 
 # 전역 설정 인스턴스

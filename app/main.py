@@ -1,8 +1,9 @@
 from fastapi import FastAPI
-from app.api import users
+from fastapi.middleware.cors import CORSMiddleware
+from app.api import users, auth  # auth 추가
 from app.core.config import settings
 from app.core.logging import logger
-from app.middleware.request_id import RequestIdMiddleware  # 추가
+from app.middleware.request_id import RequestIdMiddleware
 from app.middleware.logging import LoggingMiddleware, DetailedLoggingMiddleware
 
 # FastAPI 앱 생성
@@ -12,19 +13,29 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# CORS 설정
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# 2. LoggingMiddleware 나중에 등록
+# 로깅 미들웨어
 if settings.ENVIRONMENT == "development":
     app.add_middleware(DetailedLoggingMiddleware)
     logger.info("✅ DetailedLoggingMiddleware 등록 완료")
 else:
     app.add_middleware(LoggingMiddleware)
     logger.info("✅ LoggingMiddleware 등록 완료")
-# ⭐ 중요: 미들웨어는 역순으로 실행되므로 순서 주의!
-# 1. RequestIdMiddleware 먼저 등록 (가장 먼저 실행되어야 함)
+
+# Request ID 미들웨어
 app.add_middleware(RequestIdMiddleware)
+logger.info("✅ RequestIdMiddleware 등록 완료")
 
 # 라우터 등록
+app.include_router(auth.router, prefix="/api")  # 인증 라우터 추가
 app.include_router(users.router, prefix="/api")
 
 

@@ -70,3 +70,16 @@ async def root():
 async def health_check():
     """헬스 체크"""
     return {"status": "healthy"}
+
+@app.get("/info")
+async def app_info():
+    """애플리케이션 정보"""
+    return {
+        "environment": settings.ENVIRONMENT,
+        "is_development": settings.is_development,
+        "is_production": settings.is_production,
+        "log_level": settings.LOG_LEVEL,
+        "cors_origins": settings.cors_origins_list,
+        "database_host": settings.DB_HOST,  # 운영에서는 제거 권장
+        "rate_limit_enabled": settings.ENABLE_RATE_LIMIT
+    }

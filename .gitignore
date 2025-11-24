@@ -45,3 +45,25 @@ build/
 *.egg-info/
 uploads/
 .idea
+
+# 환경 변수 파일 (민감 정보)
+.env
+.env.production
+.env.local
+.env.*.local
+
+# 예제 파일은 커밋 허용
+!.env.example
+
+
+# OS
+.DS_Store
+Thumbs.db
+
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+

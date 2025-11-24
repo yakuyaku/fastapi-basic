@@ -1,3 +1,5 @@
+from typing import Any
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.core.security import decode_access_token
@@ -8,7 +10,7 @@ from app.core.logging import logger
 security = HTTPBearer()
 
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Any:
     """
     현재 인증된 사용자 가져오기
 

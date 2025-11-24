@@ -1,0 +1,18 @@
+pip install python-dotenv pydantic-settings
+```
+
+**설명:**
+- `python-dotenv`: .env 파일 읽기
+- `pydantic-settings`: 설정 관리 (타입 체크 + 자동완성)
+
+.env 설정과 맞아야한다.
+
+---
+
+## Step 3: 폴더 구조 만들기
+```
+app/
+  ├── core/         ← 새로 만들기
+  │   ├── __init__.py
+  │   └── config.py
+  └── main.py

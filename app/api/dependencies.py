@@ -6,11 +6,13 @@ from app.services.user_service import UserService
 from app.services.auth_service import AuthService
 from app.services.post_service import PostService
 from app.services.file_service import FileService
+from app.services.comment_service import CommentService
 from app.repositories.user_repository import UserRepository
 from app.repositories.post_repository import PostRepository
 from app.repositories.file_repository import FileRepository
 from app.repositories.post_attachment_repository import PostAttachmentRepository
 from app.repositories.temp_file_repository import TempFileRepository
+from app.repositories.comment_repository import CommentRepository
 from app.domain.entities.user import UserEntity
 from app.core.dependencies import get_current_user as get_user_dict
 
@@ -51,6 +53,16 @@ def get_file_service() -> FileService:
         temp_file_repository
     )
 
+
+def get_comment_service() -> CommentService:
+    """
+    CommentService 인스턴스 생성 (의존성 주입)
+
+    Returns:
+        CommentService: 댓글 서비스 인스턴스
+    """
+    comment_repository = CommentRepository()
+    return CommentService(comment_repository)
 
 
 # Service factories (with dependency injection)

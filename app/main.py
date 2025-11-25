@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.v1 import users, auth, posts, files  # Clean Architecture v1 라우터
+from app.api.v1 import users, auth, posts, files, comments  # Clean Architecture v1 라우터
 from app.core.config import settings
 from app.core.logging import logger
 from app.middleware.request_id import RequestIdMiddleware
@@ -47,6 +47,14 @@ app.include_router(
     prefix="/api/v1",
     tags=["files"]
 )
+
+# 라우터 등록
+app.include_router(
+    comments.router,
+    prefix="/api/v1",
+    tags=["comments"]
+)
+
 
 @app.on_event("startup")
 async def startup_event():

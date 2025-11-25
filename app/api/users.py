@@ -21,12 +21,106 @@ import aiomysql
 router = APIRouter(prefix="/users", tags=["users"])
 
 
-@router.post("/", response_model=UserCreateResponse, status_code=status.HTTP_201_CREATED)
-async def create_user(request: Request, user: UserCreate):
+@router.post("/register", response_model=UserCreateResponse, status_code=status.HTTP_201_CREATED)
+async def register_user(request: Request, user: UserCreate):
     """
-    사용자 생성 (회원가입) - 공개 API
+    회원가입 (공개 API)
 
-    인증 불필요 (회원가입용)
+    **인증 불필요**
+
+    일반 사용자가 자체적으로 회원가입할 수 있는 공개 API입니다.
+    생성된 사용자는 자동으로 일반 사용자(is_admin=False)로 등록됩니다.
+
+    - **email**: 이메일 주소 (unique)
+    - **username**: 사용자명 (unique, 3-50자, 영문/숫자/_/- 만 가능)
+    - **password**: 비밀번호 (8-100자, 영문+숫자 필수)
+
+    ⚠️ is_admin 필드는 무시되며, 항상 False로 설정됩니다.
+    """
+    request_id = getattr(request.state, "request_id", "no-id")
+
+    logger.info(f"[{request_id}] 회원가입 요청 - username: {user.username}, email: {user.email}")
+
+    # 보안: is_admin 필드 강제로 False 설정
+    user.is_admin = False
+
+    conn = await get_db_connection()
+
+    try:
+        async with conn.cursor(aiomysql.DictCursor) as cursor:
+            # 1. 이메일 중복 체크
+            check_email_query = "SELECT id FROM users WHERE email = %s"
+            await cursor.execute(check_email_query, (user.email,))
+            if await cursor.fetchone():
+                logger.warning(f"[{request_id}] 이메일 중복: {user.email}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="이미 사용 중인 이메일입니다"
+                )
+
+            # 2. 사용자명 중복 체크
+            check_username_query = "SELECT id FROM users WHERE username = %s"
+            await cursor.execute(check_username_query, (user.username,))
+            if await cursor.fetchone():
+                logger.warning(f"[{request_id}] 사용자명 중복: {user.username}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="이미 사용 중인 사용자명입니다"
+                )
+
+            # 3. 비밀번호 해싱
+            hashed_password = hash_password(user.password)
+
+            # 4. 사용자 생성 (is_admin은 항상 False)
+            insert_query = """
+                           INSERT INTO users (email, username, password_hash, is_admin, is_active)
+                           VALUES (%s, %s, %s, %s, %s)
+                           """
+            await cursor.execute(
+                insert_query,
+                (user.email, user.username, hashed_password, False, True)  # is_admin=False 강제
+            )
+            await conn.commit()
+
+            # 5. 생성된 사용자 ID 가져오기
+            user_id = cursor.lastrowid
+
+            # 6. 생성된 사용자 정보 조회
+            select_query = """
+                           SELECT id, email, username, is_active, is_admin, created_at
+                           FROM users
+                           WHERE id = %s
+                           """
+            await cursor.execute(select_query, (user_id,))
+            created_user = await cursor.fetchone()
+
+            logger.info(f"[{request_id}] 회원가입 완료 - ID: {user_id}, username: {user.username}")
+
+            return UserCreateResponse(**created_user)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        await conn.rollback()
+        logger.error(f"[{request_id}] 회원가입 실패: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="회원가입 중 오류가 발생했습니다"
+        )
+    finally:
+        conn.close()
+
+
+@router.post("/", response_model=UserCreateResponse, status_code=status.HTTP_201_CREATED)
+async def create_user(
+        request: Request,
+        user: UserCreate,
+        current_user: dict = Depends(get_current_admin_user)  # ✅ 관리자 권한 필요
+):
+    """
+    사용자 생성 - 관리자 전용
+
+    **인증 필요**: Bearer Token (관리자)
 
     - **email**: 이메일 주소 (unique)
     - **username**: 사용자명 (unique, 3-50자, 영문/숫자/_/- 만 가능)
@@ -35,7 +129,11 @@ async def create_user(request: Request, user: UserCreate):
     """
     request_id = getattr(request.state, "request_id", "no-id")
 
-    logger.info(f"[{request_id}] 사용자 생성 요청 - username: {user.username}, email: {user.email}")
+    logger.info(
+        f"[{request_id}] 사용자 생성 요청 - "
+        f"관리자: {current_user['username']} (ID: {current_user['id']}), "
+        f"생성 대상: {user.username} ({user.email})"
+    )
 
     conn = await get_db_connection()
 
@@ -87,7 +185,11 @@ async def create_user(request: Request, user: UserCreate):
             await cursor.execute(select_query, (user_id,))
             created_user = await cursor.fetchone()
 
-            logger.info(f"[{request_id}] 사용자 생성 완료 - ID: {user_id}, username: {user.username}")
+            logger.info(
+                f"[{request_id}] 사용자 생성 완료 - "
+                f"관리자: {current_user['username']}, "
+                f"생성된 사용자 ID: {user_id}, username: {user.username}"
+            )
 
             return UserCreateResponse(**created_user)
 

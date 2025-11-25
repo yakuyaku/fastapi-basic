@@ -11,7 +11,7 @@ from app.schemas.user import (
     UserUpdateResponse  # 추가
 )
 from app.core.security import hash_password  # 이미 import 되어 있어야 함
-from app.db.database import execute_query, execute_update, get_db_connection
+from app.db.database import execute_query, execute_update, get_db_connection, fetch_one, fetch_all
 from app.core.security import hash_password  # 추가
 from app.core.logging import logger
 import math
@@ -142,10 +142,10 @@ async def get_users(
 
     # 총 개수 조회
     count_query = f"SELECT COUNT(*) as total FROM users WHERE {where_clause}"
-    count_result = await execute_query(count_query, tuple(params))
-    total = count_result[0]['total']
+    count_result = await fetch_one(count_query, tuple(params))
+    total = count_result['total']  # ✅ [0] 제거!
 
-    # 페이징 계산
+# 페이징 계산
     offset = (page - 1) * page_size
     total_pages = math.ceil(total / page_size)
 
@@ -167,7 +167,7 @@ async def get_users(
     """
 
     params.extend([page_size, offset])
-    users = await execute_query(query, tuple(params))
+    users = await fetch_all(query, tuple(params))
 
     logger.info(f"[{request_id}] 사용자 목록 조회 완료 - 총 {total}명")
 
@@ -203,7 +203,7 @@ async def get_user(request: Request, user_id: int):
             WHERE id = %s \
             """
 
-    result = await execute_query(query, (user_id,))
+    result = await fetch_one(query, (user_id,))
 
     if not result:
         logger.warning(f"[{request_id}] 사용자를 찾을 수 없음 - ID: {user_id}")
@@ -213,7 +213,7 @@ async def get_user(request: Request, user_id: int):
         )
 
     logger.info(f"[{request_id}] 사용자 조회 완료 - ID: {user_id}")
-    return result[0]
+    return result
 
 @router.delete("/{user_id}", response_model=UserDeleteResponse)
 async def delete_user(request: Request, user_id: int):

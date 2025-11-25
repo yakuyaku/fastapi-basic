@@ -10,7 +10,7 @@ def hash_password(password: str) -> str:
     비밀번호 해싱 (bcrypt)
 
     Args:
-        password: 평문 비밀번호
+        password: 평문 비밀번호   
 
     Returns:
         해시된 비밀번호 문자열
@@ -19,6 +19,23 @@ def hash_password(password: str) -> str:
     salt = bcrypt.gensalt(rounds=12)
     hashed = bcrypt.hashpw(password_bytes, salt)
     return hashed.decode('utf-8')
+
+
+
+def get_password_hash(password: str) -> str:
+    """
+    비밀번호 해싱
+
+    Args:
+        password: 평문 비밀번호
+
+    Returns:
+        str: 해시된 비밀번호
+
+    Example:
+        hashed = get_password_hash("password123")
+    """
+    return pwd_context.hash(password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:

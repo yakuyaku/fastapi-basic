@@ -220,11 +220,21 @@ class CommentRepository(BaseRepository):
         if not fields:
             return await self.find_by_id(comment_id)
 
+        # 허용된 필드 화이트리스트 (SQL Injection 방지)
+        ALLOWED_UPDATE_FIELDS = {
+            'content', 'is_deleted'
+        }
+
         # UPDATE 쿼리 동적 생성
         update_fields = []
         params = []
 
         for field, value in fields.items():
+            # 필드명 검증
+            if field not in ALLOWED_UPDATE_FIELDS:
+                logger.warning(f"Attempted to update disallowed field: {field}")
+                raise ValueError(f"허용되지 않은 필드입니다: {field}")
+
             if field in ['is_deleted']:
                 update_fields.append(f"{field} = %s")
                 params.append(1 if value else 0)

@@ -5,6 +5,7 @@ app/services/file_service.py
 import os
 import uuid
 import aiofiles
+import filetype
 from pathlib import Path
 from typing import Optional, List
 from datetime import datetime, timedelta
@@ -40,13 +41,49 @@ class FileService:
         self.upload_dir.mkdir(parents=True, exist_ok=True)
 
     def _get_file_extension(self, filename: str) -> Optional[str]:
-        """파일 확장자 추출"""
-        ext = Path(filename).suffix
+        """파일 확장자 추출 (Path Traversal 방지)"""
+        # Path.name을 사용하여 디렉터리 경로 제거
+        safe_filename = Path(filename).name
+        ext = Path(safe_filename).suffix
         return ext if ext else None
 
+    def _sanitize_filename(self, filename: str) -> str:
+        """
+        파일명 정규화 (Path Traversal 방지)
+
+        보안 규칙:
+        - 상위 경로 접근 차단 (..)
+        - 디렉터리 경로 제거 (일부 브라우저는 전체 경로 전송)
+        """
+        # Path Traversal 공격 차단 (..)
+        if '..' in filename:
+            logger.warning(f"Path traversal attempt detected: {filename}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="잘못된 파일명입니다"
+            )
+
+        # Path.name으로 디렉터리 경로 안전하게 제거
+        # Windows: C:\Users\file.txt -> file.txt
+        # Unix: /home/user/file.txt -> file.txt
+        # Normal: file.txt -> file.txt
+        safe_filename = Path(filename).name
+
+        # 빈 파일명 방지
+        if not safe_filename or safe_filename in ['.', '..']:
+            logger.warning(f"Invalid filename: {filename}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="잘못된 파일명입니다"
+            )
+
+        return safe_filename
+
     def _generate_stored_filename(self, original_filename: str) -> str:
-        """고유한 저장 파일명 생성"""
-        ext = self._get_file_extension(original_filename)
+        """고유한 저장 파일명 생성 (보안 강화)"""
+        # 파일명 정규화
+        safe_filename = self._sanitize_filename(original_filename)
+        ext = self._get_file_extension(safe_filename)
         unique_id = uuid.uuid4().hex
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         return f"{timestamp}_{unique_id}{ext if ext else ''}"
@@ -90,6 +127,54 @@ class FileService:
                 detail=f"지원하지 않는 파일 형식입니다: {mime_type}"
             )
 
+    def _validate_file_content(self, content: bytes, claimed_mime_type: str) -> str:
+        """
+        Magic bytes로 실제 파일 타입 검증 (MIME Spoofing 방지)
+
+        Args:
+            content: 파일 내용 (bytes)
+            claimed_mime_type: 클라이언트가 제공한 MIME 타입
+
+        Returns:
+            str: 검증된 실제 MIME 타입
+
+        Raises:
+            HTTPException: 파일 타입 불일치 또는 지원하지 않는 파일
+        """
+        # Magic bytes로 실제 파일 타입 확인
+        kind = filetype.guess(content)
+
+        if kind is None:
+            # 텍스트 파일은 magic bytes가 없을 수 있음
+            if claimed_mime_type == 'text/plain':
+                logger.info("Text file detected (no magic bytes)")
+                return claimed_mime_type
+            else:
+                logger.warning(f"Unknown file type - claimed: {claimed_mime_type}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="파일 형식을 확인할 수 없습니다"
+                )
+
+        actual_mime_type = kind.mime
+        logger.info(f"File type validation - claimed: {claimed_mime_type}, actual: {actual_mime_type}")
+
+        # 실제 MIME 타입이 허용 목록에 있는지 검증
+        self._validate_mime_type(actual_mime_type)
+
+        # 클라이언트가 제공한 MIME과 실제 MIME이 크게 다른 경우 경고
+        claimed_category = claimed_mime_type.split('/')[0]
+        actual_category = actual_mime_type.split('/')[0]
+
+        if claimed_category != actual_category:
+            logger.warning(
+                f"MIME type mismatch - claimed: {claimed_mime_type}, actual: {actual_mime_type}"
+            )
+            # 보안을 위해 실제 타입 사용
+            return actual_mime_type
+
+        return actual_mime_type
+
     async def upload_file(
             self,
             file: UploadFile,
@@ -119,22 +204,24 @@ class FileService:
         """
         logger.info(f"Uploading file - user: {current_user.id}, filename: {file.filename}")
 
-        # MIME 타입 검증
-        mime_type = file.content_type or 'application/octet-stream'
-        self._validate_mime_type(mime_type)
+        # 파일명 정규화 (Path Traversal 방지)
+        safe_original_filename = self._sanitize_filename(file.filename)
 
         # 파일 읽기
         content = await file.read()
         file_size = len(content)
 
+        # Magic bytes로 실제 파일 타입 검증 (MIME Spoofing 방지)
+        claimed_mime_type = file.content_type or 'application/octet-stream'
+        actual_mime_type = self._validate_file_content(content, claimed_mime_type)
+
         # 파일 크기 검증
-        is_image = mime_type.startswith('image/')
+        is_image = actual_mime_type.startswith('image/')
         self._validate_file_size(file_size, is_image)
 
-        # 저장 파일명 생성
-        original_filename = file.filename
-        stored_filename = self._generate_stored_filename(original_filename)
-        file_extension = self._get_file_extension(original_filename)
+        # 저장 파일명 생성 (보안 강화된 메서드 사용)
+        stored_filename = self._generate_stored_filename(safe_original_filename)
+        file_extension = self._get_file_extension(safe_original_filename)
 
         # 파일 저장
         file_path = self.upload_dir / stored_filename
@@ -143,13 +230,13 @@ class FileService:
 
         logger.info(f"File saved to disk - path: {file_path}")
 
-        # DB에 파일 정보 저장
+        # DB에 파일 정보 저장 (검증된 실제 MIME 타입 사용)
         file_entity = await self.file_repo.create(
-            original_filename=original_filename,
+            original_filename=safe_original_filename,
             stored_filename=stored_filename,
             file_path=str(file_path),
             file_size=file_size,
-            mime_type=mime_type,
+            mime_type=actual_mime_type,
             file_extension=file_extension,
             uploader_id=current_user.id,
             upload_ip=upload_ip,

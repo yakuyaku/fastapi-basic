@@ -1,12 +1,11 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.v1 import users, auth  # Clean Architecture v1 라우터
+from app.api.v1 import users, auth, posts  # Clean Architecture v1 라우터
 from app.core.config import settings
 from app.core.logging import logger
 from app.middleware.request_id import RequestIdMiddleware
 from app.middleware.logging import LoggingMiddleware, DetailedLoggingMiddleware
 
-# FastAPI 앱 생성
 app = FastAPI(
     title="사용자 관리 API",
     description="FastAPI 학습용 사용자 관리 시스템",
@@ -37,7 +36,11 @@ logger.info("✅ RequestIdMiddleware 등록 완료")
 # 라우터 등록
 app.include_router(auth.router, prefix="/api")  # 인증 라우터 추가
 app.include_router(users.router, prefix="/api")
-
+app.include_router(
+    posts.router,
+    prefix="/api/v1",
+    tags=["posts"]
+)
 
 @app.on_event("startup")
 async def startup_event():

@@ -4,7 +4,9 @@ API dependencies - Dependency Injection setup
 from fastapi import Depends, HTTPException, status
 from app.services.user_service import UserService
 from app.services.auth_service import AuthService
+from app.services.post_service import PostService
 from app.repositories.user_repository import UserRepository
+from app.repositories.post_repository import PostRepository
 from app.domain.entities.user import UserEntity
 from app.core.dependencies import get_current_user as get_user_dict
 
@@ -18,6 +20,16 @@ def get_user_repository() -> UserRepository:
         UserRepository: 사용자 repository 인스턴스
     """
     return UserRepository()
+
+def get_post_service() -> PostService:
+    """
+    PostService 인스턴스 생성 (의존성 주입)
+
+    Returns:
+        PostService: 게시글 서비스 인스턴스
+    """
+    post_repository = PostRepository()
+    return PostService(post_repository)
 
 
 # Service factories (with dependency injection)

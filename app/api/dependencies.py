@@ -5,8 +5,12 @@ from fastapi import Depends, HTTPException, status
 from app.services.user_service import UserService
 from app.services.auth_service import AuthService
 from app.services.post_service import PostService
+from app.services.file_service import FileService
 from app.repositories.user_repository import UserRepository
 from app.repositories.post_repository import PostRepository
+from app.repositories.file_repository import FileRepository
+from app.repositories.post_attachment_repository import PostAttachmentRepository
+from app.repositories.temp_file_repository import TempFileRepository
 from app.domain.entities.user import UserEntity
 from app.core.dependencies import get_current_user as get_user_dict
 
@@ -30,6 +34,23 @@ def get_post_service() -> PostService:
     """
     post_repository = PostRepository()
     return PostService(post_repository)
+
+def get_file_service() -> FileService:
+    """
+    FileService 인스턴스 생성 (의존성 주입)
+
+    Returns:
+        FileService: 파일 서비스 인스턴스
+    """
+    file_repository = FileRepository()
+    post_attachment_repository = PostAttachmentRepository()
+    temp_file_repository = TempFileRepository()
+    return FileService(
+        file_repository,
+        post_attachment_repository,
+        temp_file_repository
+    )
+
 
 
 # Service factories (with dependency injection)

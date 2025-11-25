@@ -8,7 +8,7 @@ from app.middleware.logging import LoggingMiddleware, DetailedLoggingMiddleware
 
 app = FastAPI(
     title="사용자 관리 API",
-    description="FastAPI 학습용 사용자 관리 시스템",
+    description="FastAPI 사용자, 게시글, 파일, 코멘트 Backend 시스템",
     version="1.0.0"
 )
 
@@ -69,7 +69,7 @@ async def shutdown_event():
 async def root():
     """루트 엔드포인트"""
     return {
-        "message": "사용자 관리 API에 오신 것을 환영합니다!",
+        "message": "FASTTAPI에 오신 것을 환영합니다!",
         "docs": "/docs",
         "environment": settings.ENVIRONMENT
     }

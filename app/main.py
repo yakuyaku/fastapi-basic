@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import users, auth  # auth 추가
+from app.api.v1 import users, auth  # Clean Architecture v1 라우터
 from app.core.config import settings
 from app.core.logging import logger
 from app.middleware.request_id import RequestIdMiddleware

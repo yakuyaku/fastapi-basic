@@ -1,19 +1,19 @@
-from fastapi import APIRouter, Query, Request, HTTPException, status
+from fastapi import APIRouter, Query, Request, HTTPException, status, Depends
 from typing import Optional
 from app.schemas.user import (
     UserListResponse,
     UserResponse,
-    UserCreate,  # 추가
-    UserCreateResponse,  # 추가
+    UserCreate,
+    UserCreateResponse,
     UserDeleteResponse,
-    UserSoftDeleteResponse,  # 추가
-    UserUpdate,  # 추가
-    UserUpdateResponse  # 추가
+    UserSoftDeleteResponse,
+    UserUpdate,
+    UserUpdateResponse
 )
-from app.core.security import hash_password  # 이미 import 되어 있어야 함
+from app.core.security import hash_password
 from app.db.database import execute_query, execute_update, get_db_connection, fetch_one, fetch_all
-from app.core.security import hash_password  # 추가
 from app.core.logging import logger
+from app.core.dependencies import get_current_user, get_current_admin_user  # ✅ 인증 의존성 추가
 import math
 import aiomysql
 
@@ -24,7 +24,9 @@ router = APIRouter(prefix="/users", tags=["users"])
 @router.post("/", response_model=UserCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(request: Request, user: UserCreate):
     """
-    사용자 생성 (회원가입)
+    사용자 생성 (회원가입) - 공개 API
+
+    인증 불필요 (회원가입용)
 
     - **email**: 이메일 주소 (unique)
     - **username**: 사용자명 (unique, 3-50자, 영문/숫자/_/- 만 가능)
@@ -65,7 +67,7 @@ async def create_user(request: Request, user: UserCreate):
             # 4. 사용자 생성
             insert_query = """
                            INSERT INTO users (email, username, password_hash, is_admin, is_active)
-                           VALUES (%s, %s, %s, %s, %s) \
+                           VALUES (%s, %s, %s, %s, %s)
                            """
             await cursor.execute(
                 insert_query,
@@ -80,7 +82,7 @@ async def create_user(request: Request, user: UserCreate):
             select_query = """
                            SELECT id, email, username, is_active, is_admin, created_at
                            FROM users
-                           WHERE id = %s \
+                           WHERE id = %s
                            """
             await cursor.execute(select_query, (user_id,))
             created_user = await cursor.fetchone()
@@ -105,6 +107,7 @@ async def create_user(request: Request, user: UserCreate):
 @router.get("/", response_model=UserListResponse)
 async def get_users(
         request: Request,
+        current_user: dict = Depends(get_current_admin_user),  # ✅ 관리자 권한 필요
         page: int = Query(1, ge=1, description="페이지 번호"),
         page_size: int = Query(10, ge=1, le=100, description="페이지당 항목 수"),
         search: Optional[str] = Query(None, description="검색어 (username 또는 email)"),
@@ -113,8 +116,17 @@ async def get_users(
         sort_by: str = Query("created_at", description="정렬 기준 (id, username, email, created_at)"),
         sort_order: str = Query("desc", regex="^(asc|desc)$", description="정렬 순서")
 ):
-    """사용자 목록 조회"""
+    """
+    사용자 목록 조회 - 관리자 전용
+
+    **인증 필요**: Bearer Token (관리자)
+    """
     request_id = getattr(request.state, "request_id", "no-id")
+
+    logger.info(
+        f"[{request_id}] 사용자 목록 조회 요청 - "
+        f"관리자: {current_user['username']} (ID: {current_user['id']})"
+    )
 
     # WHERE 조건 구성
     where_conditions = []
@@ -143,9 +155,9 @@ async def get_users(
     # 총 개수 조회
     count_query = f"SELECT COUNT(*) as total FROM users WHERE {where_clause}"
     count_result = await fetch_one(count_query, tuple(params))
-    total = count_result['total']  # ✅ [0] 제거!
+    total = count_result['total']
 
-# 페이징 계산
+    # 페이징 계산
     offset = (page - 1) * page_size
     total_pages = math.ceil(total / page_size)
 
@@ -181,13 +193,33 @@ async def get_users(
 
 
 @router.get("/{user_id}", response_model=UserResponse)
-async def get_user(request: Request, user_id: int):
+async def get_user(
+        request: Request,
+        user_id: int,
+        current_user: dict = Depends(get_current_user)  # ✅ 인증 필요
+):
     """
     특정 사용자 조회
+
+    **인증 필요**: Bearer Token
+    - 본인 정보는 누구나 조회 가능
+    - 타인 정보는 관리자만 조회 가능
 
     - **user_id**: 사용자 ID
     """
     request_id = getattr(request.state, "request_id", "no-id")
+
+    # 본인이 아니고 관리자도 아니면 거부
+    is_admin = current_user.get('is_admin', False) or current_user.get('is_superuser', False)
+    if user_id != current_user['id'] and not is_admin:
+        logger.warning(
+            f"[{request_id}] 권한 없음 - "
+            f"사용자 {current_user['id']}가 사용자 {user_id} 정보 조회 시도"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="본인의 정보만 조회할 수 있습니다"
+        )
 
     query = """
             SELECT
@@ -200,7 +232,7 @@ async def get_user(request: Request, user_id: int):
                 updated_at,
                 last_login_at
             FROM users
-            WHERE id = %s \
+            WHERE id = %s
             """
 
     result = await fetch_one(query, (user_id,))
@@ -215,10 +247,17 @@ async def get_user(request: Request, user_id: int):
     logger.info(f"[{request_id}] 사용자 조회 완료 - ID: {user_id}")
     return result
 
+
 @router.delete("/{user_id}", response_model=UserDeleteResponse)
-async def delete_user(request: Request, user_id: int):
+async def delete_user(
+        request: Request,
+        user_id: int,
+        current_user: dict = Depends(get_current_admin_user)  # ✅ 관리자 권한 필요
+):
     """
-    사용자 삭제
+    사용자 삭제 (Hard Delete) - 관리자 전용
+
+    **인증 필요**: Bearer Token (관리자)
 
     - **user_id**: 삭제할 사용자 ID
 
@@ -226,7 +265,19 @@ async def delete_user(request: Request, user_id: int):
     """
     request_id = getattr(request.state, "request_id", "no-id")
 
-    logger.info(f"[{request_id}] 사용자 삭제 요청 - ID: {user_id}")
+    logger.info(
+        f"[{request_id}] 사용자 삭제 요청 - "
+        f"관리자: {current_user['username']} (ID: {current_user['id']}), "
+        f"대상: {user_id}"
+    )
+
+    # 자기 자신은 삭제할 수 없음
+    if user_id == current_user['id']:
+        logger.warning(f"[{request_id}] 자기 자신 삭제 시도 - ID: {user_id}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="자기 자신은 삭제할 수 없습니다"
+        )
 
     conn = await get_db_connection()
 
@@ -236,7 +287,7 @@ async def delete_user(request: Request, user_id: int):
             check_query = """
                           SELECT id, username, email
                           FROM users
-                          WHERE id = %s \
+                          WHERE id = %s
                           """
             await cursor.execute(check_query, (user_id,))
             user = await cursor.fetchone()
@@ -248,7 +299,7 @@ async def delete_user(request: Request, user_id: int):
                     detail="사용자를 찾을 수 없습니다"
                 )
 
-            # 2. 사용자 삭제
+            # 2. 사용자 삭제 (Hard Delete)
             delete_query = "DELETE FROM users WHERE id = %s"
             await cursor.execute(delete_query, (user_id,))
             await conn.commit()
@@ -276,18 +327,37 @@ async def delete_user(request: Request, user_id: int):
     finally:
         conn.close()
 
-@router.delete("/{user_id}/soft", response_model=UserSoftDeleteResponse)
-async def soft_delete_user(request: Request, user_id: int):
+
+@router.patch("/{user_id}/deactivate", response_model=UserSoftDeleteResponse)
+async def deactivate_user(
+        request: Request,
+        user_id: int,
+        current_user: dict = Depends(get_current_admin_user)  # ✅ 관리자 권한 필요
+):
     """
-    사용자 비활성화 (Soft Delete)
+    사용자 비활성화 (Soft Delete) - 관리자 전용
+
+    **인증 필요**: Bearer Token (관리자)
 
     - **user_id**: 비활성화할 사용자 ID
 
-    물리적으로 삭제하지 않고 is_active를 false로 변경합니다.
+    사용자를 비활성화하며, 복구 가능합니다.
     """
     request_id = getattr(request.state, "request_id", "no-id")
 
-    logger.info(f"[{request_id}] 사용자 비활성화 요청 - ID: {user_id}")
+    logger.info(
+        f"[{request_id}] 사용자 비활성화 요청 - "
+        f"관리자: {current_user['username']} (ID: {current_user['id']}), "
+        f"대상: {user_id}"
+    )
+
+    # 자기 자신은 비활성화할 수 없음
+    if user_id == current_user['id']:
+        logger.warning(f"[{request_id}] 자기 자신 비활성화 시도 - ID: {user_id}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="자기 자신은 비활성화할 수 없습니다"
+        )
 
     conn = await get_db_connection()
 
@@ -297,7 +367,7 @@ async def soft_delete_user(request: Request, user_id: int):
             check_query = """
                           SELECT id, username, email, is_active
                           FROM users
-                          WHERE id = %s \
+                          WHERE id = %s
                           """
             await cursor.execute(check_query, (user_id,))
             user = await cursor.fetchone()
@@ -317,11 +387,11 @@ async def soft_delete_user(request: Request, user_id: int):
                     detail="이미 비활성화된 사용자입니다"
                 )
 
-            # 2. 사용자 비활성화
+            # 2. 사용자 비활성화 (Soft Delete)
             update_query = """
                            UPDATE users
                            SET is_active = 0, updated_at = CURRENT_TIMESTAMP
-                           WHERE id = %s \
+                           WHERE id = %s
                            """
             await cursor.execute(update_query, (user_id,))
             await conn.commit()
@@ -331,7 +401,7 @@ async def soft_delete_user(request: Request, user_id: int):
                 f"ID: {user_id}, username: {user['username']}"
             )
 
-            return UserDeleteResponse(
+            return UserSoftDeleteResponse(
                 id=user['id'],
                 username=user['username'],
                 email=user['email'],
@@ -352,15 +422,25 @@ async def soft_delete_user(request: Request, user_id: int):
 
 
 @router.patch("/{user_id}/restore")
-async def restore_user(request: Request, user_id: int):
+async def restore_user(
+        request: Request,
+        user_id: int,
+        current_user: dict = Depends(get_current_admin_user)  # ✅ 관리자 권한 필요
+):
     """
-    사용자 복구 (Soft Delete 취소)
+    사용자 복구 (Soft Delete 취소) - 관리자 전용
+
+    **인증 필요**: Bearer Token (관리자)
 
     - **user_id**: 복구할 사용자 ID
     """
     request_id = getattr(request.state, "request_id", "no-id")
 
-    logger.info(f"[{request_id}] 사용자 복구 요청 - ID: {user_id}")
+    logger.info(
+        f"[{request_id}] 사용자 복구 요청 - "
+        f"관리자: {current_user['username']} (ID: {current_user['id']}), "
+        f"대상: {user_id}"
+    )
 
     conn = await get_db_connection()
 
@@ -370,7 +450,7 @@ async def restore_user(request: Request, user_id: int):
             check_query = """
                           SELECT id, username, email, is_active
                           FROM users
-                          WHERE id = %s \
+                          WHERE id = %s
                           """
             await cursor.execute(check_query, (user_id,))
             user = await cursor.fetchone()
@@ -394,7 +474,7 @@ async def restore_user(request: Request, user_id: int):
             update_query = """
                            UPDATE users
                            SET is_active = 1, updated_at = CURRENT_TIMESTAMP
-                           WHERE id = %s \
+                           WHERE id = %s
                            """
             await cursor.execute(update_query, (user_id,))
             await conn.commit()
@@ -426,21 +506,60 @@ async def restore_user(request: Request, user_id: int):
 
 
 @router.put("/{user_id}", response_model=UserUpdateResponse)
-async def update_user(request: Request, user_id: int, user_update: UserUpdate):
+async def update_user(
+        request: Request,
+        user_id: int,
+        user_update: UserUpdate,
+        current_user: dict = Depends(get_current_user)  # ✅ 인증 필요
+):
     """
     사용자 정보 전체 수정 (PUT)
+
+    **인증 필요**: Bearer Token
+    - 본인 정보는 누구나 수정 가능
+    - 타인 정보는 관리자만 수정 가능
+    - is_admin 변경은 관리자만 가능
 
     - **user_id**: 수정할 사용자 ID
     - **email**: 새 이메일 (선택)
     - **username**: 새 사용자명 (선택)
     - **password**: 새 비밀번호 (선택)
-    - **is_admin**: 관리자 여부 (선택)
+    - **is_admin**: 관리자 여부 (선택, 관리자만)
 
     모든 필드가 선택사항이지만, 최소 1개 이상의 필드를 제공해야 합니다.
     """
     request_id = getattr(request.state, "request_id", "no-id")
 
-    logger.info(f"[{request_id}] 사용자 수정 요청 - ID: {user_id}")
+    logger.info(
+        f"[{request_id}] 사용자 수정 요청 - "
+        f"요청자: {current_user['username']} (ID: {current_user['id']}), "
+        f"대상: {user_id}"
+    )
+
+    # 권한 체크
+    is_admin = current_user.get('is_admin', False) or current_user.get('is_superuser', False)
+
+    # 본인이 아니고 관리자도 아니면 거부
+    if user_id != current_user['id'] and not is_admin:
+        logger.warning(
+            f"[{request_id}] 권한 없음 - "
+            f"사용자 {current_user['id']}가 사용자 {user_id} 수정 시도"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="본인의 정보만 수정할 수 있습니다"
+        )
+
+    # is_admin 변경은 관리자만 가능
+    if user_update.is_admin is not None and not is_admin:
+        logger.warning(
+            f"[{request_id}] 권한 없음 - "
+            f"사용자 {current_user['id']}가 관리자 권한 변경 시도"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="관리자 권한 변경은 관리자만 가능합니다"
+        )
 
     # 수정할 필드가 하나도 없는 경우
     if not any([user_update.email, user_update.username, user_update.password, user_update.is_admin is not None]):
@@ -524,7 +643,7 @@ async def update_user(request: Request, user_id: int, user_update: UserUpdate):
             select_query = """
                            SELECT id, email, username, is_active, is_admin, updated_at
                            FROM users
-                           WHERE id = %s \
+                           WHERE id = %s
                            """
             await cursor.execute(select_query, (user_id,))
             updated_user = await cursor.fetchone()
@@ -550,17 +669,26 @@ async def update_user(request: Request, user_id: int, user_update: UserUpdate):
 
 
 @router.patch("/{user_id}", response_model=UserUpdateResponse)
-async def partial_update_user(request: Request, user_id: int, user_update: UserUpdate):
+async def partial_update_user(
+        request: Request,
+        user_id: int,
+        user_update: UserUpdate,
+        current_user: dict = Depends(get_current_user)  # ✅ 인증 필요
+):
     """
     사용자 정보 부분 수정 (PATCH)
+
+    **인증 필요**: Bearer Token
+    - 본인 정보는 누구나 수정 가능
+    - 타인 정보는 관리자만 수정 가능
 
     - **user_id**: 수정할 사용자 ID
     - **email**: 새 이메일 (선택)
     - **username**: 새 사용자명 (선택)
     - **password**: 새 비밀번호 (선택)
-    - **is_admin**: 관리자 여부 (선택)
+    - **is_admin**: 관리자 여부 (선택, 관리자만)
 
     제공된 필드만 수정됩니다.
     """
     # PUT과 동일한 로직 사용
-    return await update_user(request, user_id, user_update)
+    return await update_user(request, user_id, user_update, current_user)

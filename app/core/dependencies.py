@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.core.security import decode_access_token
-from app.db.database import fetch_one  # ✅ fetch_one 사용
+from app.db.database import fetch_one
 from app.core.logging import logger
 
 # Bearer 토큰 스키마
@@ -46,11 +46,11 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # 사용자 조회 (✅ fetch_one 사용)
+    # 사용자 조회 (✅ full_name 제거)
     query = """
-            SELECT id, email, username, full_name, is_active, is_superuser, created_at, updated_at
+            SELECT id, email, username, is_active, is_admin, created_at, updated_at
             FROM users
-            WHERE id = %s \
+            WHERE id = %s
             """
     user = await fetch_one(query, (user_id,))
 

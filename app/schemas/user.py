@@ -55,14 +55,9 @@ class UserCreateResponse(BaseModel):
     created_at: datetime
     message: str = "사용자가 성공적으로 생성되었습니다"
 
+    class Config:
+        from_attributes = True
 
-class UserListResponse(BaseModel):
-    """사용자 목록 응답 스키마"""
-    total: int
-    page: int
-    page_size: int
-    total_pages: int
-    users: list[UserResponse]
 
 class UserDeleteResponse(BaseModel):
     """사용자 삭제 응답 스키마 (Hard Delete)"""
@@ -79,8 +74,6 @@ class UserSoftDeleteResponse(BaseModel):
     email: str
     is_active: bool
     message: str = "사용자가 비활성화되었습니다"
-
-
 
 
 class UserUpdate(BaseModel):
@@ -121,10 +114,12 @@ class UserUpdateResponse(BaseModel):
     updated_at: datetime
     message: str = "사용자 정보가 성공적으로 수정되었습니다"
 
+    class Config:
+        from_attributes = True
 
 
 class UserListResponse(BaseModel):
-    """사용자 목록 응답"""
+    """사용자 목록 응답 스키마"""
     users: list[UserResponse] = Field(..., description="사용자 목록")
     total: int = Field(..., description="전체 사용자 수")
     page: int = Field(..., description="현재 페이지")
@@ -133,18 +128,18 @@ class UserListResponse(BaseModel):
 
 
 class UserLogin(BaseModel):
-    """로그인 요청"""
+    """로그인 요청 스키마"""
     email: EmailStr = Field(..., description="이메일")
     password: str = Field(..., min_length=6, description="비밀번호")
 
 
 class Token(BaseModel):
-    """JWT 토큰 응답"""
+    """JWT 토큰 응답 스키마"""
     access_token: str = Field(..., description="액세스 토큰")
     token_type: str = Field(default="bearer", description="토큰 타입")
 
 
 class TokenData(BaseModel):
-    """JWT 토큰 데이터"""
+    """JWT 토큰 데이터 스키마"""
     user_id: Optional[int] = None
     email: Optional[str] = None

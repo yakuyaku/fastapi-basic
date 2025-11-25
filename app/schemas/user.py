@@ -120,3 +120,28 @@ class UserUpdateResponse(BaseModel):
     is_admin: bool
     updated_at: datetime
     message: str = "사용자 정보가 성공적으로 수정되었습니다"
+
+
+class UserListResponse(BaseModel):
+    """사용자 목록 응답"""
+    users: list[UserResponse] = Field(..., description="사용자 목록")
+    total: int = Field(..., description="전체 사용자 수")
+    page: int = Field(..., description="현재 페이지")
+    page_size: int = Field(..., description="페이지 크기")
+    total_pages: int = Field(..., description="전체 페이지 수")
+
+class UserLogin(BaseModel):
+    """로그인 요청"""
+    email: EmailStr = Field(..., description="이메일")
+    password: str = Field(..., min_length=6, description="비밀번호")
+
+class Token(BaseModel):
+    """JWT 토큰 응답"""
+    access_token: str = Field(..., description="액세스 토큰")
+    token_type: str = Field(default="bearer", description="토큰 타입")
+
+
+class TokenData(BaseModel):
+    """JWT 토큰 데이터"""
+    user_id: Optional[int] = None
+    email: Optional[str] = None

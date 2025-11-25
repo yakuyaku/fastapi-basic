@@ -1,16 +1,23 @@
+"""
+FastAPI 의존성 함수들
+app/core/dependencies.py
+"""
+
 from typing import Any
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.core.security import decode_access_token
-from app.db.database import execute_query
+from app.db.database import fetch_one  # ✅ fetch_one 사용
 from app.core.logging import logger
 
 # Bearer 토큰 스키마
 security = HTTPBearer()
 
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Any:
+async def get_current_user(
+        credentials: HTTPAuthorizationCredentials = Depends(security)
+) -> dict:
     """
     현재 인증된 사용자 가져오기
 
@@ -39,15 +46,15 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # 사용자 조회
+    # 사용자 조회 (✅ fetch_one 사용)
     query = """
-            SELECT id, email, username, is_active, is_admin, created_at
+            SELECT id, email, username, full_name, is_active, is_superuser, created_at, updated_at
             FROM users
             WHERE id = %s \
             """
-    result = await execute_query(query, (user_id,))
+    user = await fetch_one(query, (user_id,))
 
-    if not result:
+    if not user:
         logger.warning(f"사용자를 찾을 수 없음 - ID: {user_id}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -55,10 +62,8 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    user = result[0]
-
     # 비활성화된 사용자 체크
-    if not user['is_active']:
+    if not user.get('is_active', False):
         logger.warning(f"비활성화된 사용자 - ID: {user_id}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -68,13 +73,30 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     return user
 
 
-async def get_current_admin_user(current_user: dict = Depends(get_current_user)):
+async def get_current_active_user(
+        current_user: dict = Depends(get_current_user)
+) -> dict:
+    """
+    현재 활성화된 사용자 가져오기
+
+    이미 get_current_user에서 is_active를 체크하므로
+    추가 검증은 필요 없지만, 명시적으로 제공합니다.
+    """
+    return current_user
+
+
+async def get_current_admin_user(
+        current_user: dict = Depends(get_current_user)
+) -> dict:
     """
     현재 인증된 관리자 사용자 가져오기
 
     관리자 권한이 필요한 엔드포인트에 사용합니다.
     """
-    if not current_user['is_admin']:
+    # is_admin 또는 is_superuser 확인
+    is_admin = current_user.get('is_admin', False) or current_user.get('is_superuser', False)
+
+    if not is_admin:
         logger.warning(f"관리자 권한 필요 - 사용자 ID: {current_user['id']}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -82,3 +104,7 @@ async def get_current_admin_user(current_user: dict = Depends(get_current_user))
         )
 
     return current_user
+
+
+# Alias for consistency
+get_current_active_superuser = get_current_admin_user

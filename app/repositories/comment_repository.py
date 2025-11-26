@@ -222,7 +222,7 @@ class CommentRepository(BaseRepository):
 
         # 허용된 필드 화이트리스트 (SQL Injection 방지)
         ALLOWED_UPDATE_FIELDS = {
-            'content', 'is_deleted'
+            'content', 'is_deleted', 'path'
         }
 
         # UPDATE 쿼리 동적 생성

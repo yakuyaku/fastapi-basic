@@ -6,6 +6,7 @@ from app.services.user_service import UserService
 from app.services.auth_service import AuthService
 from app.services.post_service import PostService
 from app.services.file_service import FileService
+from app.services.shop_service import ShopService
 from app.services.comment_service import CommentService
 from app.repositories.user_repository import UserRepository
 from app.repositories.post_repository import PostRepository
@@ -13,9 +14,14 @@ from app.repositories.file_repository import FileRepository
 from app.repositories.post_attachment_repository import PostAttachmentRepository
 from app.repositories.temp_file_repository import TempFileRepository
 from app.repositories.comment_repository import CommentRepository
+from app.repositories.shop_repository import ShopRepository
 from app.domain.entities.user import UserEntity
 from app.core.dependencies import get_current_user as get_user_dict
 
+
+def get_shop_service() -> ShopService:
+    shop_repository = ShopRepository()
+    return ShopService(shop_repository)
 
 # Repository factories
 def get_user_repository() -> UserRepository:

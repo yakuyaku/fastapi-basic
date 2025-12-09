@@ -2,7 +2,7 @@
 Comment service - Business logic for comment operations
 app/services/comment_service.py
 """
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
 from fastapi import HTTPException, status
 from app.domain.entities.comment import CommentEntity
 from app.domain.entities.user import UserEntity
@@ -10,6 +10,7 @@ from app.domain.interfaces.comment_repository import CommentRepositoryProtocol
 from app.schemas.comment import CommentCreate, CommentUpdate
 from app.core.logging import logger
 from app.core.config import settings
+from app.core.security import hash_password, verify_password, generate_random_password
 
 
 class CommentService:
@@ -33,7 +34,7 @@ class CommentService:
             post_id: int,
             comment_data: CommentCreate,
             current_user: Optional[UserEntity]
-    ) -> CommentEntity:
+    ) -> Tuple[CommentEntity, Optional[str]]:
         """
         댓글 생성
 
@@ -54,11 +55,27 @@ class CommentService:
         """
         # 게스트 사용자 처리
         author_id = current_user.id if current_user else settings.GUEST_USER_ID
+        is_guest = (author_id == settings.GUEST_USER_ID)
 
         logger.info(
-            f"Creating comment - post: {post_id}, user: {'guest' if author_id == settings.GUEST_USER_ID else author_id}, "
+            f"Creating comment - post: {post_id}, user: {'guest' if is_guest else author_id}, "
             f"parent: {comment_data.parent_id}"
         )
+
+        # 비밀번호 처리 (게스트 댓글)
+        plain_password = None
+        hashed_password = None
+
+        if is_guest:
+            if comment_data.password:
+                # 사용자가 비밀번호를 입력한 경우
+                plain_password = comment_data.password
+                hashed_password = hash_password(plain_password)
+            else:
+                # 비밀번호 자동 생성
+                plain_password = generate_random_password(8)
+                hashed_password = hash_password(plain_password)
+                logger.info(f"Auto-generated password for guest comment")
 
         parent_comment = None
         depth = 0
@@ -111,7 +128,8 @@ class CommentService:
             parent_id=comment_data.parent_id,
             depth=depth,
             path=temp_path,  # 임시 path
-            order_num=order_num
+            order_num=order_num,
+            password=hashed_password
         )
 
         # path 업데이트 (실제 ID로 변경)
@@ -126,7 +144,9 @@ class CommentService:
         logger.info(
             f"Comment created successfully - ID: {comment.id}, depth: {depth}, path: {new_path}"
         )
-        return comment
+
+        # 게스트 댓글의 경우 평문 비밀번호 반환 (응답에서 사용)
+        return comment, plain_password if is_guest else None
 
     async def get_comment(self, comment_id: int) -> CommentEntity:
         """
@@ -182,7 +202,7 @@ class CommentService:
             self,
             comment_id: int,
             comment_data: CommentUpdate,
-            current_user: UserEntity
+            current_user: Optional[UserEntity]
     ) -> CommentEntity:
         """
         댓글 수정
@@ -199,7 +219,10 @@ class CommentService:
         Returns:
             CommentEntity: 수정된 댓글 엔티티
         """
-        logger.info(f"Updating comment - ID: {comment_id}, by user: {current_user.id}")
+        user_id = current_user.id if current_user else 0
+        is_admin = current_user.is_admin if current_user else False
+
+        logger.info(f"Updating comment - ID: {comment_id}, by user: {user_id}")
 
         # 댓글 존재 확인
         comment = await self.repo.find_by_id(comment_id)
@@ -218,10 +241,27 @@ class CommentService:
                 detail="삭제된 댓글은 수정할 수 없습니다"
             )
 
-        # 권한 확인
-        if not comment.can_modify(current_user.id, current_user.is_admin):
+        # 게스트 댓글 비밀번호 검증
+        is_guest_comment = (comment.author_id == settings.GUEST_USER_ID)
+        if is_guest_comment:
+            if not comment_data.password:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="게스트 댓글 수정을 위해서는 비밀번호가 필요합니다"
+                )
+
+            if not comment.password or not verify_password(comment_data.password, comment.password):
+                logger.warning(f"Invalid password for guest comment - ID: {comment_id}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="비밀번호가 일치하지 않습니다"
+                )
+            logger.info(f"Password verified for guest comment - ID: {comment_id}")
+
+        # 권한 확인 (인증된 사용자)
+        elif not comment.can_modify(user_id, is_admin):
             logger.warning(
-                f"Permission denied - User {current_user.id} tried to modify comment {comment_id}"
+                f"Permission denied - User {user_id} tried to modify comment {comment_id}"
             )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -230,6 +270,10 @@ class CommentService:
 
         # 수정할 필드 준비
         update_data = comment_data.model_dump(exclude_unset=True)
+
+        # password 필드 제거 (업데이트하지 않음)
+        if 'password' in update_data:
+            del update_data['password']
 
         if not update_data:
             logger.info(f"No fields to update - ID: {comment_id}")
@@ -244,8 +288,9 @@ class CommentService:
     async def delete_comment(
             self,
             comment_id: int,
-            current_user: UserEntity,
-            hard_delete: bool = False
+            current_user: Optional[UserEntity],
+            hard_delete: bool = False,
+            password: Optional[str] = None
     ) -> CommentEntity:
         """
         댓글 삭제
@@ -264,8 +309,11 @@ class CommentService:
         Returns:
             CommentEntity: 삭제된 댓글 엔티티
         """
+        user_id = current_user.id if current_user else 0
+        is_admin = current_user.is_admin if current_user else False
+
         logger.info(
-            f"Deleting comment - ID: {comment_id}, by user: {current_user.id}, hard: {hard_delete}"
+            f"Deleting comment - ID: {comment_id}, by user: {user_id}, hard: {hard_delete}"
         )
 
         # 댓글 존재 확인
@@ -277,10 +325,27 @@ class CommentService:
                 detail="댓글을 찾을 수 없습니다"
             )
 
-        # 권한 확인
-        if not comment.can_delete(current_user.id, current_user.is_admin):
+        # 게스트 댓글 비밀번호 검증
+        is_guest_comment = (comment.author_id == settings.GUEST_USER_ID)
+        if is_guest_comment:
+            if not password:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="게스트 댓글 삭제를 위해서는 비밀번호가 필요합니다"
+                )
+
+            if not comment.password or not verify_password(password, comment.password):
+                logger.warning(f"Invalid password for guest comment deletion - ID: {comment_id}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="비밀번호가 일치하지 않습니다"
+                )
+            logger.info(f"Password verified for guest comment deletion - ID: {comment_id}")
+
+        # 권한 확인 (인증된 사용자)
+        elif not comment.can_delete(user_id, is_admin):
             logger.warning(
-                f"Permission denied - User {current_user.id} tried to delete comment {comment_id}"
+                f"Permission denied - User {user_id} tried to delete comment {comment_id}"
             )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -288,7 +353,7 @@ class CommentService:
             )
 
         # 삭제 수행
-        if hard_delete and current_user.is_admin:
+        if hard_delete and is_admin:
             # Hard Delete (관리자 전용, CASCADE로 자식 댓글도 삭제됨)
             success = await self.repo.delete(comment_id)
             if not success:

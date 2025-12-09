@@ -32,6 +32,7 @@ class CommentRepository(BaseRepository):
             created_at=row.get('created_at'),
             updated_at=row.get('updated_at'),
             is_deleted=bool(row.get('is_deleted', 0)),
+            password=row.get('password'),
             # JOIN시 작성자 정보
             author_username=row.get('author_username'),
             author_email=row.get('author_email')
@@ -45,18 +46,19 @@ class CommentRepository(BaseRepository):
             parent_id: Optional[int] = None,
             depth: int = 0,
             path: str = "0",  # 기본값 "0" (임시값)
-            order_num: int = 0
+            order_num: int = 0,
+            password: Optional[str] = None
     ) -> CommentEntity:
         """댓글 생성"""
         query = """
                 INSERT INTO comments (
                     post_id, parent_id, author_id, content,
-                    depth, path, order_num, is_deleted
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, 0) \
+                    depth, path, order_num, is_deleted, password
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, 0, %s)
                 """
         comment_id = await self._execute(
             query,
-            (post_id, parent_id, author_id, content, depth, path, order_num)
+            (post_id, parent_id, author_id, content, depth, path, order_num, password)
         )
 
         logger.info(
@@ -70,9 +72,9 @@ class CommentRepository(BaseRepository):
         """ID로 댓글 조회"""
         query = """
                 SELECT id, post_id, parent_id, author_id, content,
-                       depth, path, order_num, created_at, updated_at, is_deleted
+                       depth, path, order_num, created_at, updated_at, is_deleted, password
                 FROM comments
-                WHERE id = %s \
+                WHERE id = %s
                 """
         row = await self._fetch_one(query, (comment_id,))
         return self._to_entity(row)
@@ -82,11 +84,11 @@ class CommentRepository(BaseRepository):
         query = """
                 SELECT
                     c.id, c.post_id, c.parent_id, c.author_id, c.content,
-                    c.depth, c.path, c.order_num, c.created_at, c.updated_at, c.is_deleted,
+                    c.depth, c.path, c.order_num, c.created_at, c.updated_at, c.is_deleted, c.password,
                     u.username as author_username, u.email as author_email
                 FROM comments c
                          LEFT JOIN users u ON c.author_id = u.id
-                WHERE c.id = %s \
+                WHERE c.id = %s
                 """
         row = await self._fetch_one(query, (comment_id,))
         return self._to_entity(row)
@@ -111,9 +113,9 @@ class CommentRepository(BaseRepository):
         where_clause = " AND ".join(conditions)
 
         query = f"""
-            SELECT 
+            SELECT
                 c.id, c.post_id, c.parent_id, c.author_id, c.content,
-                c.depth, c.path, c.order_num, c.created_at, c.updated_at, c.is_deleted,
+                c.depth, c.path, c.order_num, c.created_at, c.updated_at, c.is_deleted, c.password,
                 u.username as author_username, u.email as author_email
             FROM comments c
             LEFT JOIN users u ON c.author_id = u.id

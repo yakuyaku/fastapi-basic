@@ -56,7 +56,7 @@ async def create_comment(
     request_id = getattr(request.state, "request_id", "no-id")
 
     # Service 계층 호출
-    comment = await comment_service.create_comment(post_id, comment_data, current_user)
+    comment, generated_password = await comment_service.create_comment(post_id, comment_data, current_user)
 
     # Entity를 Response schema로 변환
     return CommentCreateResponse(
@@ -67,7 +67,8 @@ async def create_comment(
         depth=comment.depth,
         path=comment.path,
         author_id=comment.author_id,
-        created_at=comment.created_at
+        created_at=comment.created_at,
+        generated_password=generated_password
     )
 
 
@@ -223,18 +224,20 @@ async def update_comment(
         request: Request,
         comment_id: int,
         comment_data: CommentUpdate,
-        current_user: UserEntity = Depends(get_current_user),
+        current_user: Optional[UserEntity] = Depends(get_optional_user),
         comment_service: CommentService = Depends(get_comment_service)
 ):
     """
     댓글 수정
 
-    **인증 필요**: Bearer Token
+    **인증**: 선택 (게스트 댓글은 비밀번호 필요)
     - 본인이 작성한 댓글만 수정 가능
     - 관리자는 모든 댓글 수정 가능
+    - **게스트 댓글 수정 시 password 필드 필수**
 
     - **comment_id**: 댓글 ID
     - **content**: 새 댓글 내용
+    - **password**: 게스트 댓글 비밀번호 (게스트 댓글 수정 시 필수)
     """
     request_id = getattr(request.state, "request_id", "no-id")
 
@@ -254,13 +257,13 @@ async def partial_update_comment(
         request: Request,
         comment_id: int,
         comment_data: CommentUpdate,
-        current_user: UserEntity = Depends(get_current_user),
+        current_user: Optional[UserEntity] = Depends(get_optional_user),
         comment_service: CommentService = Depends(get_comment_service)
 ):
     """
     댓글 부분 수정 (PATCH)
 
-    **인증 필요**: Bearer Token
+    **인증**: 선택 (게스트 댓글은 비밀번호 필요)
 
     PUT과 동일한 동작 (댓글은 content만 수정 가능)
     """
@@ -271,18 +274,21 @@ async def partial_update_comment(
 async def delete_comment(
         request: Request,
         comment_id: int,
-        current_user: UserEntity = Depends(get_current_user),
+        current_user: Optional[UserEntity] = Depends(get_optional_user),
         comment_service: CommentService = Depends(get_comment_service),
-        hard_delete: bool = Query(False, description="Hard Delete 여부 (관리자 전용)")
+        hard_delete: bool = Query(False, description="Hard Delete 여부 (관리자 전용)"),
+        password: Optional[str] = Query(None, description="게스트 댓글 비밀번호")
 ):
     """
     댓글 삭제
 
-    **인증 필요**: Bearer Token
+    **인증**: 선택 (게스트 댓글은 비밀번호 필요)
     - 본인이 작성한 댓글만 삭제 가능
     - 관리자는 모든 댓글 삭제 가능
+    - **게스트 댓글 삭제 시 password 쿼리 파라미터 필수**
 
     - **comment_id**: 댓글 ID
+    - **password**: 게스트 댓글 비밀번호 (게스트 댓글 삭제 시 필수)
     - **hard_delete**: Hard Delete 여부 (기본값: false, 관리자 전용)
 
     Soft Delete (기본):
@@ -295,7 +301,7 @@ async def delete_comment(
     request_id = getattr(request.state, "request_id", "no-id")
 
     # Service 계층 호출
-    comment = await comment_service.delete_comment(comment_id, current_user, hard_delete)
+    comment = await comment_service.delete_comment(comment_id, current_user, hard_delete, password)
 
     # Entity를 Response schema로 변환
     return CommentDeleteResponse(

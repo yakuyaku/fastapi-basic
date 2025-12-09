@@ -17,7 +17,12 @@ from app.repositories.comment_repository import CommentRepository
 from app.repositories.shop_repository import ShopRepository
 from app.domain.entities.user import UserEntity
 from app.core.dependencies import get_current_user as get_user_dict, get_optional_user as get_optional_user_dict
+from app.services.category_service import CategoryService
+from app.repositories.category_repository import CategoryRepository
 
+def get_category_service() -> CategoryService:
+    category_repository = CategoryRepository()
+    return CategoryService(category_repository)
 
 def get_shop_service() -> ShopService:
     shop_repository = ShopRepository()

@@ -34,8 +34,8 @@ app.add_middleware(RequestIdMiddleware)
 logger.info("✅ RequestIdMiddleware 등록 완료")
 
 # 라우터 등록
-app.include_router(auth.router, prefix="/api")  # 인증 라우터 추가
-app.include_router(users.router, prefix="/api")
+app.include_router(auth.router, prefix="/api/v1")  # 인증 라우터 추가
+app.include_router(users.router, prefix="/api/v1")
 app.include_router(
     posts.router,
     prefix="/api/v1",

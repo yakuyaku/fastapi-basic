@@ -25,6 +25,7 @@ class PostEntity:
     is_deleted: bool = False
     is_pinned: bool = False
     is_locked: bool = False
+    password: Optional[str] = None  # 게스트 게시글 비밀번호 (해시)
 
     # JOIN용 작성자 정보 (Optional)
     author_username: Optional[str] = None

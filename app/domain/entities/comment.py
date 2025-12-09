@@ -29,6 +29,7 @@ class CommentEntity:
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     is_deleted: bool = False
+    password: Optional[str] = None  # 게스트 댓글 비밀번호 (해시)
 
     # JOIN용 작성자 정보 (Optional)
     author_username: Optional[str] = None

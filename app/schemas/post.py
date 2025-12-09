@@ -12,6 +12,7 @@ class PostCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=200, description="게시글 제목")
     content: str = Field(..., min_length=1, description="게시글 내용")
     is_pinned: bool = Field(False, description="고정 게시글 여부 (관리자 전용)")
+    password: Optional[str] = Field(None, min_length=4, max_length=50, description="게스트 게시글 비밀번호 (미입력시 자동생성)")
 
     @field_validator('title')
     @classmethod
@@ -36,6 +37,7 @@ class PostUpdate(BaseModel):
     content: Optional[str] = Field(None, min_length=1, description="게시글 내용")
     is_pinned: Optional[bool] = Field(None, description="고정 게시글 여부 (관리자 전용)")
     is_locked: Optional[bool] = Field(None, description="게시글 잠금 여부 (관리자 전용)")
+    password: Optional[str] = Field(None, min_length=4, max_length=50, description="게스트 게시글 비밀번호 (수정시 필수)")
 
     @field_validator('title')
     @classmethod
@@ -122,6 +124,7 @@ class PostCreateResponse(BaseModel):
     like_count: int
     created_at: datetime
     is_pinned: bool
+    generated_password: Optional[str] = Field(None, description="자동 생성된 비밀번호 (게스트 게시글)")
     message: str = "게시글이 성공적으로 작성되었습니다"
 
     class Config:

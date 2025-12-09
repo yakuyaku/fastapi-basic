@@ -11,6 +11,7 @@ class CommentCreate(BaseModel):
     """댓글 생성 요청 스키마"""
     content: str = Field(..., min_length=1, max_length=1000, description="댓글 내용")
     parent_id: Optional[int] = Field(None, description="부모 댓글 ID (대댓글인 경우)")
+    password: Optional[str] = Field(None, min_length=4, max_length=50, description="게스트 댓글 비밀번호 (미입력시 자동생성)")
 
     @field_validator('content')
     @classmethod
@@ -24,6 +25,7 @@ class CommentCreate(BaseModel):
 class CommentUpdate(BaseModel):
     """댓글 수정 요청 스키마"""
     content: str = Field(..., min_length=1, max_length=1000, description="댓글 내용")
+    password: Optional[str] = Field(None, min_length=4, max_length=50, description="게스트 댓글 비밀번호 (수정시 필수)")
 
     @field_validator('content')
     @classmethod
@@ -120,6 +122,7 @@ class CommentCreateResponse(BaseModel):
     path: Optional[str] = None
     author_id: int
     created_at: datetime
+    generated_password: Optional[str] = Field(None, description="자동 생성된 비밀번호 (게스트 댓글)")
     message: str = "댓글이 성공적으로 작성되었습니다"
 
     class Config:

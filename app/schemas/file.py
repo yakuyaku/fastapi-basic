@@ -17,6 +17,7 @@ class FileUploadResponse(BaseModel):
     file_extension: Optional[str] = None
     created_at: datetime
     is_temp: bool = True
+    generated_password: Optional[str] = Field(None, description="자동 생성된 비밀번호 (게스트 파일)")
     message: str = "파일이 성공적으로 업로드되었습니다"
 
     class Config:

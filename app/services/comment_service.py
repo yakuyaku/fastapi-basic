@@ -9,6 +9,7 @@ from app.domain.entities.user import UserEntity
 from app.domain.interfaces.comment_repository import CommentRepositoryProtocol
 from app.schemas.comment import CommentCreate, CommentUpdate
 from app.core.logging import logger
+from app.core.config import settings
 
 
 class CommentService:
@@ -31,26 +32,31 @@ class CommentService:
             self,
             post_id: int,
             comment_data: CommentCreate,
-            current_user: UserEntity
+            current_user: Optional[UserEntity]
     ) -> CommentEntity:
         """
         댓글 생성
 
         비즈니스 규칙:
+        - 인증된 사용자 또는 게스트 사용자 작성 가능
         - 최대 깊이 제한
         - parent_id가 있으면 부모 댓글 존재 확인
         - depth, path, order_num 자동 계산
+        - 게스트 사용자는 author_id = 0으로 설정
 
         Args:
             post_id: 게시글 ID
             comment_data: 댓글 생성 데이터
-            current_user: 현재 인증된 사용자
+            current_user: 현재 인증된 사용자 (None이면 게스트)
 
         Returns:
             CommentEntity: 생성된 댓글 엔티티
         """
+        # 게스트 사용자 처리
+        author_id = current_user.id if current_user else settings.GUEST_USER_ID
+
         logger.info(
-            f"Creating comment - post: {post_id}, user: {current_user.id}, "
+            f"Creating comment - post: {post_id}, user: {'guest' if author_id == settings.GUEST_USER_ID else author_id}, "
             f"parent: {comment_data.parent_id}"
         )
 
@@ -100,7 +106,7 @@ class CommentService:
         # 댓글 생성
         comment = await self.repo.create(
             post_id=post_id,
-            author_id=current_user.id,
+            author_id=author_id,
             content=comment_data.content,
             parent_id=comment_data.parent_id,
             depth=depth,

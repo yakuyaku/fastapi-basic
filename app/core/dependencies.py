@@ -106,5 +106,48 @@ async def get_current_admin_user(
     return current_user
 
 
+async def get_optional_user(
+        credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer(auto_error=False))
+) -> dict | None:
+    """
+    선택적 인증 사용자 가져오기
+
+    토큰이 제공되면 검증하고, 없으면 None을 반환합니다.
+    게스트 사용자 허용시 사용합니다.
+    """
+    if credentials is None:
+        return None
+
+    token = credentials.credentials
+
+    # 토큰 디코딩
+    payload = decode_access_token(token)
+
+    if payload is None:
+        return None
+
+    user_id: int = payload.get("user_id")
+
+    if user_id is None:
+        return None
+
+    # 사용자 조회
+    query = """
+            SELECT id, email, username, is_active, is_admin, created_at, updated_at
+            FROM users
+            WHERE id = %s
+            """
+    user = await fetch_one(query, (user_id,))
+
+    if not user:
+        return None
+
+    # 비활성화된 사용자는 None 반환
+    if not user.get('is_active', False):
+        return None
+
+    return user
+
+
 # Alias for consistency
 get_current_active_superuser = get_current_admin_user

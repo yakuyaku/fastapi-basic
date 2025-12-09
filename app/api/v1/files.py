@@ -19,6 +19,7 @@ from app.domain.entities.user import UserEntity
 from app.api.dependencies import (
     get_file_service,
     get_current_user,
+    get_optional_user,
     get_current_admin_user
 )
 
@@ -30,7 +31,7 @@ router = APIRouter(prefix="/files", tags=["files"])
 async def upload_file(
         request: Request,
         file: UploadFile = File(...),
-        current_user: UserEntity = Depends(get_current_user),
+        current_user: Optional[UserEntity] = Depends(get_optional_user),
         file_service: FileService = Depends(get_file_service),
         is_public: bool = Query(True, description="공개 파일 여부"),
         is_temp: bool = Query(True, description="임시 파일 여부 (24시간 후 자동 삭제)")
@@ -38,7 +39,7 @@ async def upload_file(
     """
     파일 업로드
 
-    **인증 필요**: Bearer Token
+    **인증**: 선택 (게스트 사용자 허용)
 
     - **file**: 업로드할 파일
     - **is_public**: 공개 파일 여부 (기본값: true)
@@ -53,6 +54,8 @@ async def upload_file(
     크기 제한:
     - 이미지: 10MB
     - 문서: 50MB
+
+    인증된 사용자는 본인 이름으로, 게스트는 "guest"로 등록됩니다.
     """
     request_id = getattr(request.state, "request_id", "no-id")
     upload_ip = request.client.host if request.client else None
@@ -180,7 +183,7 @@ async def get_post_attachments(
 async def download_file(
         request: Request,
         file_id: int,
-        current_user: Optional[UserEntity] = Depends(get_current_user),
+        current_user: Optional[UserEntity] = Depends(get_optional_user),
         file_service: FileService = Depends(get_file_service)
 ):
     """
@@ -209,7 +212,7 @@ async def download_file(
 async def get_file_info(
         request: Request,
         file_id: int,
-        current_user: Optional[UserEntity] = Depends(get_current_user),
+        current_user: Optional[UserEntity] = Depends(get_optional_user),
         file_service: FileService = Depends(get_file_service)
 ):
     """

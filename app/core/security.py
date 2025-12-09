@@ -1,4 +1,6 @@
 import bcrypt
+import secrets
+import string
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
@@ -52,6 +54,25 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     password_bytes = plain_password.encode('utf-8')
     hashed_bytes = hashed_password.encode('utf-8')
     return bcrypt.checkpw(password_bytes, hashed_bytes)
+
+
+def generate_random_password(length: int = 8) -> str:
+    """
+    랜덤 비밀번호 생성
+
+    Args:
+        length: 비밀번호 길이 (기본값: 8)
+
+    Returns:
+        생성된 랜덤 비밀번호
+
+    Example:
+        password = generate_random_password(8)  # "Xy3$kL9p"
+    """
+    # 대문자, 소문자, 숫자 조합
+    alphabet = string.ascii_letters + string.digits
+    password = ''.join(secrets.choice(alphabet) for _ in range(length))
+    return password
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:

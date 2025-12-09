@@ -2,13 +2,15 @@
 Post service - Business logic for post operations
 app/services/post_service.py
 """
-from typing import Optional
+from typing import Optional, Tuple
 from fastapi import HTTPException, status
 from app.domain.entities.post import PostEntity
 from app.domain.entities.user import UserEntity
 from app.domain.interfaces.post_repository import PostRepositoryProtocol
 from app.schemas.post import PostCreate, PostUpdate
 from app.core.logging import logger
+from app.core.config import settings
+from app.core.security import hash_password, verify_password, generate_random_password
 import math
 
 
@@ -32,19 +34,20 @@ class PostService:
     async def create_post(
             self,
             post_data: PostCreate,
-            current_user: UserEntity
-    ) -> PostEntity:
+            current_user: Optional[UserEntity]
+    ) -> Tuple[PostEntity, Optional[str]]:
         """
         게시글 생성 (비즈니스 로직)
 
         비즈니스 규칙:
-        - 인증된 사용자만 작성 가능
+        - 인증된 사용자 또는 게스트 사용자 작성 가능
         - 제목/내용 필수
         - 고정 게시글은 관리자만 생성 가능
+        - 게스트 사용자는 author_id = 0으로 설정
 
         Args:
             post_data: 게시글 생성 데이터
-            current_user: 현재 인증된 사용자
+            current_user: 현재 인증된 사용자 (None이면 게스트)
 
         Returns:
             PostEntity: 생성된 게시글 엔티티
@@ -52,26 +55,49 @@ class PostService:
         Raises:
             HTTPException: 권한 없음
         """
-        logger.info(f"Creating post - user: {current_user.id}, title: {post_data.title}")
+        # 게스트 사용자 처리
+        author_id = current_user.id if current_user else settings.GUEST_USER_ID
+        is_admin = current_user.is_admin if current_user else False
+        is_guest = (author_id == settings.GUEST_USER_ID)
+
+        logger.info(f"Creating post - user: {'guest' if is_guest else author_id}, title: {post_data.title}")
 
         # 비즈니스 규칙: 고정 게시글은 관리자만 생성 가능
-        if post_data.is_pinned and not current_user.is_admin:
-            logger.warning(f"Non-admin user tried to create pinned post - user: {current_user.id}")
+        if post_data.is_pinned and not is_admin:
+            logger.warning(f"Non-admin user tried to create pinned post - user: {author_id}")
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="고정 게시글은 관리자만 생성할 수 있습니다"
             )
 
+        # 비밀번호 처리 (게스트 게시글)
+        plain_password = None
+        hashed_password = None
+
+        if is_guest:
+            if post_data.password:
+                # 사용자가 비밀번호를 입력한 경우
+                plain_password = post_data.password
+                hashed_password = hash_password(plain_password)
+            else:
+                # 비밀번호 자동 생성
+                plain_password = generate_random_password(8)
+                hashed_password = hash_password(plain_password)
+                logger.info(f"Auto-generated password for guest post")
+
         # Repository 호출
         post = await self.repo.create(
             title=post_data.title,
             content=post_data.content,
-            author_id=current_user.id,
-            is_pinned=post_data.is_pinned
+            author_id=author_id,
+            is_pinned=post_data.is_pinned,
+            password=hashed_password
         )
 
-        logger.info(f"Post created successfully - ID: {post.id}, author: {current_user.id}")
-        return post
+        logger.info(f"Post created successfully - ID: {post.id}, author: {author_id}")
+
+        # 게스트 게시글의 경우 평문 비밀번호 반환 (응답에서 사용)
+        return post, plain_password if is_guest else None
 
     async def get_post(
             self,
@@ -187,7 +213,7 @@ class PostService:
             self,
             post_id: int,
             post_data: PostUpdate,
-            current_user: UserEntity
+            current_user: Optional[UserEntity]
     ) -> PostEntity:
         """
         게시글 정보 수정
@@ -209,7 +235,10 @@ class PostService:
         Raises:
             HTTPException: 권한 없음, 게시글 없음
         """
-        logger.info(f"Updating post - ID: {post_id}, by user: {current_user.id}")
+        user_id = current_user.id if current_user else 0
+        is_admin = current_user.is_admin if current_user else False
+
+        logger.info(f"Updating post - ID: {post_id}, by user: {user_id}")
 
         # 게시글 존재 확인
         post = await self.repo.find_by_id(post_id)
@@ -228,10 +257,27 @@ class PostService:
                 detail="삭제된 게시글은 수정할 수 없습니다"
             )
 
-        # 비즈니스 규칙: 권한 체크
-        if not post.can_modify(current_user.id, current_user.is_admin):
+        # 게스트 게시글 비밀번호 검증
+        is_guest_post = (post.author_id == settings.GUEST_USER_ID)
+        if is_guest_post:
+            if not post_data.password:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="게스트 게시글 수정을 위해서는 비밀번호가 필요합니다"
+                )
+
+            if not post.password or not verify_password(post_data.password, post.password):
+                logger.warning(f"Invalid password for guest post - ID: {post_id}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="비밀번호가 일치하지 않습니다"
+                )
+            logger.info(f"Password verified for guest post - ID: {post_id}")
+
+        # 비즈니스 규칙: 권한 체크 (인증된 사용자)
+        elif not post.can_modify(user_id, is_admin):
             logger.warning(
-                f"Permission denied - User {current_user.id} tried to modify post {post_id}"
+                f"Permission denied - User {user_id} tried to modify post {post_id}"
             )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -239,8 +285,8 @@ class PostService:
             )
 
         # 비즈니스 규칙: 잠긴 게시글은 관리자만 수정 가능
-        if post.is_locked and not current_user.is_admin:
-            logger.warning(f"Cannot update locked post - ID: {post_id}, user: {current_user.id}")
+        if post.is_locked and not is_admin:
+            logger.warning(f"Cannot update locked post - ID: {post_id}, user: {user_id}")
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="잠긴 게시글은 관리자만 수정할 수 있습니다"
@@ -249,13 +295,17 @@ class PostService:
         # 업데이트할 필드 준비
         update_data = post_data.model_dump(exclude_unset=True)
 
+        # password 필드 제거 (업데이트하지 않음)
+        if 'password' in update_data:
+            del update_data['password']
+
         # 비즈니스 규칙: 고정/잠금 설정은 관리자만 가능
-        if 'is_pinned' in update_data and not current_user.is_admin:
-            logger.warning(f"Non-admin tried to change pin status - user: {current_user.id}")
+        if 'is_pinned' in update_data and not is_admin:
+            logger.warning(f"Non-admin tried to change pin status - user: {user_id}")
             del update_data['is_pinned']
 
-        if 'is_locked' in update_data and not current_user.is_admin:
-            logger.warning(f"Non-admin tried to change lock status - user: {current_user.id}")
+        if 'is_locked' in update_data and not is_admin:
+            logger.warning(f"Non-admin tried to change lock status - user: {user_id}")
             del update_data['is_locked']
 
         # 수정할 필드가 없으면 현재 상태 반환
@@ -272,8 +322,9 @@ class PostService:
     async def delete_post(
             self,
             post_id: int,
-            current_user: UserEntity,
-            hard_delete: bool = False
+            current_user: Optional[UserEntity],
+            hard_delete: bool = False,
+            password: Optional[str] = None
     ) -> PostEntity:
         """
         게시글 삭제
@@ -294,7 +345,10 @@ class PostService:
         Raises:
             HTTPException: 권한 없음, 게시글 없음
         """
-        logger.info(f"Deleting post - ID: {post_id}, by user: {current_user.id}, hard: {hard_delete}")
+        user_id = current_user.id if current_user else 0
+        is_admin = current_user.is_admin if current_user else False
+
+        logger.info(f"Deleting post - ID: {post_id}, by user: {user_id}, hard: {hard_delete}")
 
         # 게시글 존재 확인
         post = await self.repo.find_by_id(post_id)
@@ -305,10 +359,27 @@ class PostService:
                 detail="게시글을 찾을 수 없습니다"
             )
 
-        # 비즈니스 규칙: 권한 체크
-        if not post.can_delete(current_user.id, current_user.is_admin):
+        # 게스트 게시글 비밀번호 검증
+        is_guest_post = (post.author_id == settings.GUEST_USER_ID)
+        if is_guest_post:
+            if not password:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="게스트 게시글 삭제를 위해서는 비밀번호가 필요합니다"
+                )
+
+            if not post.password or not verify_password(password, post.password):
+                logger.warning(f"Invalid password for guest post deletion - ID: {post_id}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="비밀번호가 일치하지 않습니다"
+                )
+            logger.info(f"Password verified for guest post deletion - ID: {post_id}")
+
+        # 비즈니스 규칙: 권한 체크 (인증된 사용자)
+        elif not post.can_delete(user_id, is_admin):
             logger.warning(
-                f"Permission denied - User {current_user.id} tried to delete post {post_id}"
+                f"Permission denied - User {user_id} tried to delete post {post_id}"
             )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -316,7 +387,7 @@ class PostService:
             )
 
         # 삭제 수행
-        if hard_delete and current_user.is_admin:
+        if hard_delete and is_admin:
             # Hard Delete (관리자 전용)
             success = await self.repo.delete(post_id)
             if not success:

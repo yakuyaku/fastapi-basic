@@ -16,7 +16,7 @@ from app.repositories.temp_file_repository import TempFileRepository
 from app.repositories.comment_repository import CommentRepository
 from app.repositories.shop_repository import ShopRepository
 from app.domain.entities.user import UserEntity
-from app.core.dependencies import get_current_user as get_user_dict
+from app.core.dependencies import get_current_user as get_user_dict, get_optional_user as get_optional_user_dict
 
 
 def get_shop_service() -> ShopService:
@@ -118,6 +118,26 @@ async def get_current_user(
     Returns:
         UserEntity: 사용자 엔티티
     """
+    return UserEntity(**user_dict)
+
+
+async def get_optional_user(
+    user_dict: dict | None = Depends(get_optional_user_dict)
+) -> UserEntity | None:
+    """
+    현재 인증된 사용자를 UserEntity로 변환 (선택적)
+
+    토큰이 없거나 유효하지 않으면 None을 반환합니다.
+    게스트 사용자를 허용하는 엔드포인트에서 사용합니다.
+
+    Args:
+        user_dict: 기존 dependency에서 반환된 사용자 dict (또는 None)
+
+    Returns:
+        UserEntity | None: 사용자 엔티티 또는 None
+    """
+    if user_dict is None:
+        return None
     return UserEntity(**user_dict)
 
 

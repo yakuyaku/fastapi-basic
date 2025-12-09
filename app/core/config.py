@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     MAX_IMAGE_SIZE: int = 10485760
     MAX_DOCUMENT_SIZE: int = 52428800
 
+    # Guest User
+    GUEST_USER_ID: int = 55  # username='guest'인 사용자의 ID
+
     # CORS
     CORS_ORIGINS: str = '["http://localhost:3000"]'
 

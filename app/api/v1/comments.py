@@ -20,6 +20,7 @@ from app.domain.entities.user import UserEntity
 from app.api.dependencies import (
     get_comment_service,
     get_current_user,
+    get_optional_user,
     get_current_admin_user
 )
 
@@ -32,13 +33,13 @@ async def create_comment(
         request: Request,
         post_id: int,
         comment_data: CommentCreate,
-        current_user: UserEntity = Depends(get_current_user),
+        current_user: Optional[UserEntity] = Depends(get_optional_user),
         comment_service: CommentService = Depends(get_comment_service)
 ):
     """
     댓글 작성
 
-    **인증 필요**: Bearer Token
+    **인증**: 선택 (게스트 사용자 허용)
 
     - **post_id**: 게시글 ID
     - **content**: 댓글 내용 (1-1000자)
@@ -49,6 +50,8 @@ async def create_comment(
     - 1차 대댓글: parent_id = 상위댓글ID, depth = 1
     - 2차 대댓글: parent_id = 1차댓글ID, depth = 2
     - 최대 깊이: 3 (0, 1, 2, 3)
+
+    인증된 사용자는 본인 이름으로, 게스트는 "guest"로 등록됩니다.
     """
     request_id = getattr(request.state, "request_id", "no-id")
 

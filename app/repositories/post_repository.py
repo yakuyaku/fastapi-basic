@@ -41,6 +41,7 @@ class PostRepository(BaseRepository):
             is_deleted=bool(row.get('is_deleted', 0)),
             is_pinned=bool(row.get('is_pinned', 0)),
             is_locked=bool(row.get('is_locked', 0)),
+            password=row.get('password'),
             # JOIN시 작성자 정보
             author_username=row.get('author_username'),
             author_email=row.get('author_email')
@@ -51,16 +52,17 @@ class PostRepository(BaseRepository):
             title: str,
             content: str,
             author_id: int,
-            is_pinned: bool = False
+            is_pinned: bool = False,
+            password: Optional[str] = None
     ) -> PostEntity:
         """게시글 생성"""
         query = """
-                INSERT INTO posts (title, content, author_id, is_pinned, is_deleted)
-                VALUES (%s, %s, %s, %s, 0) \
+                INSERT INTO posts (title, content, author_id, is_pinned, is_deleted, password)
+                VALUES (%s, %s, %s, %s, 0, %s)
                 """
         post_id = await self._execute(
             query,
-            (title, content, author_id, 1 if is_pinned else 0)
+            (title, content, author_id, 1 if is_pinned else 0, password)
         )
 
         logger.info(f"Post created in DB - ID: {post_id}, author: {author_id}")
@@ -72,9 +74,9 @@ class PostRepository(BaseRepository):
         """ID로 게시글 조회"""
         query = """
                 SELECT id, title, content, author_id, view_count, like_count,
-                       created_at, updated_at, is_deleted, is_pinned, is_locked
+                       created_at, updated_at, is_deleted, is_pinned, is_locked, password
                 FROM posts
-                WHERE id = %s \
+                WHERE id = %s
                 """
         row = await self._fetch_one(query, (post_id,))
         return self._to_entity(row)
@@ -84,11 +86,11 @@ class PostRepository(BaseRepository):
         query = """
                 SELECT
                     p.id, p.title, p.content, p.author_id, p.view_count, p.like_count,
-                    p.created_at, p.updated_at, p.is_deleted, p.is_pinned, p.is_locked,
+                    p.created_at, p.updated_at, p.is_deleted, p.is_pinned, p.is_locked, p.password,
                     u.username as author_username, u.email as author_email
                 FROM posts p
                          LEFT JOIN users u ON p.author_id = u.id
-                WHERE p.id = %s \
+                WHERE p.id = %s
                 """
         row = await self._fetch_one(query, (post_id,))
         return self._to_entity(row)

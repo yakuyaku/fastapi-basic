@@ -27,6 +27,7 @@ class FileEntity:
     created_at: Optional[datetime] = None
     is_deleted: bool = False
     is_public: bool = True
+    password: Optional[str] = None  # 게스트 파일 비밀번호 (해시)
 
     # JOIN용 업로더 정보 (Optional)
     uploader_username: Optional[str] = None

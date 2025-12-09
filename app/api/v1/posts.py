@@ -22,6 +22,7 @@ from app.domain.entities.user import UserEntity
 from app.api.dependencies import (
     get_post_service,
     get_current_user,
+    get_optional_user,
     get_current_admin_user
 )
 
@@ -33,22 +34,24 @@ router = APIRouter(prefix="/posts", tags=["posts"])
 async def create_post(
         request: Request,
         post_data: PostCreate,
-        current_user: UserEntity = Depends(get_current_user),
+        current_user: Optional[UserEntity] = Depends(get_optional_user),
         post_service: PostService = Depends(get_post_service)
 ):
     """
     게시글 작성
 
-    **인증 필요**: Bearer Token
+    **인증**: 선택 (게스트 사용자 허용)
 
     - **title**: 게시글 제목 (1-200자)
     - **content**: 게시글 내용 (필수)
     - **is_pinned**: 고정 게시글 여부 (관리자 전용, 기본값: false)
+
+    인증된 사용자는 본인 이름으로, 게스트는 "guest"로 등록됩니다.
     """
     request_id = getattr(request.state, "request_id", "no-id")
 
     # Service 계층 호출
-    post = await post_service.create_post(post_data, current_user)
+    post, generated_password = await post_service.create_post(post_data, current_user)
 
     # Entity를 Response schema로 변환
     return PostCreateResponse(
@@ -59,7 +62,8 @@ async def create_post(
         view_count=post.view_count,
         like_count=post.like_count,
         created_at=post.created_at,
-        is_pinned=post.is_pinned
+        is_pinned=post.is_pinned,
+        generated_password=generated_password
     )
 
 
@@ -67,7 +71,7 @@ async def create_post(
 async def get_posts(
         request: Request,
         post_service: PostService = Depends(get_post_service),
-        current_user: Optional[UserEntity] = Depends(get_current_user),
+        current_user: Optional[UserEntity] = Depends(get_optional_user),
         page: int = Query(1, ge=1, description="페이지 번호"),
         page_size: int = Query(10, ge=1, le=100, description="페이지당 항목 수"),
         search: Optional[str] = Query(None, description="검색어 (제목 또는 내용)"),
@@ -131,7 +135,7 @@ async def get_posts(
 async def get_post(
         request: Request,
         post_id: int,
-        current_user: Optional[UserEntity] = Depends(get_current_user),
+        current_user: Optional[UserEntity] = Depends(get_optional_user),
         post_service: PostService = Depends(get_post_service),
         increment_view: bool = Query(True, description="조회수 증가 여부")
 ):
@@ -173,21 +177,23 @@ async def update_post(
         request: Request,
         post_id: int,
         post_data: PostUpdate,
-        current_user: UserEntity = Depends(get_current_user),
+        current_user: Optional[UserEntity] = Depends(get_optional_user),
         post_service: PostService = Depends(get_post_service)
 ):
     """
     게시글 전체 수정 (PUT)
 
-    **인증 필요**: Bearer Token
+    **인증**: 선택 (게스트 게시글은 비밀번호 필요)
     - 본인이 작성한 게시글만 수정 가능
     - 관리자는 모든 게시글 수정 가능
     - 잠긴 게시글은 관리자만 수정 가능
     - 고정/잠금 설정은 관리자만 변경 가능
+    - **게스트 게시글 수정 시 password 필드 필수**
 
     - **post_id**: 수정할 게시글 ID
     - **title**: 새 제목 (선택)
     - **content**: 새 내용 (선택)
+    - **password**: 게스트 게시글 비밀번호 (게스트 게시글 수정 시 필수)
     - **is_pinned**: 고정 여부 (선택, 관리자 전용)
     - **is_locked**: 잠금 여부 (선택, 관리자 전용)
     """
@@ -235,18 +241,21 @@ async def partial_update_post(
 async def delete_post(
         request: Request,
         post_id: int,
-        current_user: UserEntity = Depends(get_current_user),
+        current_user: Optional[UserEntity] = Depends(get_optional_user),
         post_service: PostService = Depends(get_post_service),
-        hard_delete: bool = Query(False, description="Hard Delete 여부 (관리자 전용)")
+        hard_delete: bool = Query(False, description="Hard Delete 여부 (관리자 전용)"),
+        password: Optional[str] = Query(None, description="게스트 게시글 비밀번호")
 ):
     """
     게시글 삭제
 
-    **인증 필요**: Bearer Token
+    **인증**: 선택 (게스트 게시글은 비밀번호 필요)
     - 본인이 작성한 게시글만 삭제 가능
     - 관리자는 모든 게시글 삭제 가능
+    - **게스트 게시글 삭제 시 password 쿼리 파라미터 필수**
 
     - **post_id**: 삭제할 게시글 ID
+    - **password**: 게스트 게시글 비밀번호 (게스트 게시글 삭제 시 필수)
     - **hard_delete**: Hard Delete 여부 (기본값: false, 관리자 전용)
 
     기본적으로 Soft Delete(is_deleted=1)되며, hard_delete=true인 경우 완전 삭제됩니다 (관리자 전용).
@@ -254,7 +263,7 @@ async def delete_post(
     request_id = getattr(request.state, "request_id", "no-id")
 
     # Service 계층 호출
-    post = await post_service.delete_post(post_id, current_user, hard_delete)
+    post = await post_service.delete_post(post_id, current_user, hard_delete, password)
 
     # Entity를 Response schema로 변환
     return PostDeleteResponse(

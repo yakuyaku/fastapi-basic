@@ -178,7 +178,7 @@ class FileService:
     async def upload_file(
             self,
             file: UploadFile,
-            current_user: UserEntity,
+            current_user: Optional[UserEntity],
             upload_ip: Optional[str] = None,
             is_public: bool = True,
             is_temp: bool = True
@@ -191,10 +191,11 @@ class FileService:
         - MIME 타입 검증
         - 고유 파일명 생성
         - 임시 파일로 저장 (기본값)
+        - 게스트 사용자는 uploader_id = 0으로 설정
 
         Args:
             file: 업로드 파일
-            current_user: 현재 사용자
+            current_user: 현재 사용자 (None이면 게스트)
             upload_ip: 업로드 IP
             is_public: 공개 여부
             is_temp: 임시 파일 여부 (True인 경우 24시간 후 삭제)
@@ -202,7 +203,10 @@ class FileService:
         Returns:
             FileEntity: 업로드된 파일 엔티티
         """
-        logger.info(f"Uploading file - user: {current_user.id}, filename: {file.filename}")
+        # 게스트 사용자 처리
+        uploader_id = current_user.id if current_user else settings.GUEST_USER_ID
+
+        logger.info(f"Uploading file - user: {'guest' if uploader_id == settings.GUEST_USER_ID else uploader_id}, filename: {file.filename}")
 
         # 파일명 정규화 (Path Traversal 방지)
         safe_original_filename = self._sanitize_filename(file.filename)
@@ -238,7 +242,7 @@ class FileService:
             file_size=file_size,
             mime_type=actual_mime_type,
             file_extension=file_extension,
-            uploader_id=current_user.id,
+            uploader_id=uploader_id,
             upload_ip=upload_ip,
             is_public=is_public
         )
@@ -248,7 +252,7 @@ class FileService:
             expires_at = datetime.now() + timedelta(hours=24)
             await self.temp_repo.create(
                 file_id=file_entity.id,
-                uploader_id=current_user.id,
+                uploader_id=uploader_id,
                 expires_at=expires_at
             )
             logger.info(f"Registered as temp file - expires at: {expires_at}")

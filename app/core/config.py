@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     GUEST_USER_ID: int = 55  # username='guest'인 사용자의 ID
 
     # CORS
-    CORS_ORIGINS: str = '["http://localhost:3000"]'
+    CORS_ORIGINS: str = '["http://localhost:3000","https://wejeju.com", "https://www.wejeju.com"]'
 
     # Application
     ENABLE_REQUEST_LOGGING: bool = True

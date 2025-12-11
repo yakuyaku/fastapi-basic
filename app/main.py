@@ -9,7 +9,9 @@ from app.middleware.logging import LoggingMiddleware, DetailedLoggingMiddleware
 app = FastAPI(
     title="사용자 관리 API",
     description="FastAPI 사용자, 게시글, 파일, 코멘트 Backend 시스템",
-    version="1.0.0"
+    version="1.0.0",
+    docs_url=None if settings.ENVIRONMENT == "production" else "/docs",
+    redoc_url=None if settings.ENVIRONMENT == "production" else "/redoc"
 )
 
 # CORS 설정
